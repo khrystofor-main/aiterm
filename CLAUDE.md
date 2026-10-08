@@ -1,0 +1,24 @@
+# aiterm — notes for Claude
+
+AI terminal for Ubuntu: the user's shell on the left, the `agy` agent (Antigravity CLI, Gemini on the user's Google subscription) on the right. See README.md for the architecture and roadmap.
+
+## Talking to the user
+
+- The user speaks Russian: reply in Russian. Code, comments, commit messages and docs in the repo are in English.
+- The user is learning Linux and heading for an AI Engineer role: explain decisions briefly, prefer clear designs that read well in a portfolio.
+
+## Layout
+
+- `bin/aiterm` — starts a dedicated tmux server (`-L aiterm`, config `config/tmux.conf`) with the shell and the agent panes.
+- `bin/aiterm-left` — the agent reads the user's terminal (last command / N / all).
+- `bin/aiterm-run` — the agent runs a command in the user's terminal and gets the output.
+- `rules/aiterm.md` — agent rules; `install.sh` puts them into `~/.gemini/GEMINI.md` between `<!-- aiterm:begin -->` / `<!-- aiterm:end -->`.
+- `tests/run.sh` — integration tests on a throwaway tmux server.
+
+## Working on it
+
+- Run `tests/run.sh` after any change to `bin/`. Add a test for new behaviour.
+- The tools find the tmux server through `AITERM_SOCKET` and the user's pane through `AITERM_LEFT_PANE`; keep both working.
+- Never touch the user's live session (`tmux -L aiterm`) or their real `~/.gemini` files from tests.
+- Things only the user's machine has: `agy` with their login, the GNOME desktop, their tmux session. Cloud sessions can edit code and run `tests/run.sh` (needs tmux), but checking agy or the GUI needs a thread on the user's computer.
+- Don't use the user's subscription token outside the official `agy` client. Integrations go through `agy` itself (MCP, `--output-format stream-json`).

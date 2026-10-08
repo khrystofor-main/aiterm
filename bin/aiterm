@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# aiterm — your shell on the left, the agy AI agent on the right.
+#
+# Runs on its own tmux server (socket "aiterm") with the config bundled in this
+# repository, so it never touches the user's own tmux setup. The agent finds the
+# left pane through AITERM_LEFT_PANE and talks to it with aiterm-left/aiterm-run.
+set -euo pipefail
+
+ROOT=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
+SOCKET=aiterm
+SESSION=main
+CONFIG="$ROOT/config/tmux.conf"
+AGY=$(command -v agy || echo "$HOME/.local/bin/agy")
+
+t() { tmux -L "$SOCKET" -f "$CONFIG" "$@"; }
+
+if ! command -v tmux >/dev/null; then
+  echo "aiterm needs tmux: sudo apt install tmux" >&2
+  exit 1
+fi
+if [ ! -x "$AGY" ]; then
+  echo "aiterm needs the Antigravity CLI (agy): https://antigravity.google/docs/cli/install" >&2
+  exit 1
+fi
+if [ -n "${TMUX:-}" ]; then
+  echo "You are already inside tmux. Leave it (exit) and run aiterm again." >&2
+  exit 1
+fi
+
+# Opens agy to the right of pane $1 and tells it which pane is the user's shell
+add_agy_pane() {
+  local left=$1 dir
+  dir=$(t display-message -p -t "$left" '#{pane_current_path}')
+  t split-window -h -l 40% -t "$left" -c "$dir" \
+    -e "AITERM_LEFT_PANE=$left" -e "AITERM_SOCKET=$SOCKET" "$AGY"
+  t select-pane -t "$left"
+}
+
+if t has-session -t "$SESSION" 2>/dev/null; then
+  # Session exists. If the agent pane was closed (agy exited), bring it back
+  if [ "$(t list-panes -t "$SESSION" | wc -l)" -lt 2 ]; then
+    add_agy_pane "$(t display-message -p -t "$SESSION" '#{pane_id}')"
+  fi
+  exec tmux -L "$SOCKET" attach -t "$SESSION"
+fi
+
+# Create the session at the real window size, otherwise -l 40% is taken from 80x24
+t new-session -d -s "$SESSION" -c "$PWD" -x "$(tput cols)" -y "$(tput lines)"
+add_agy_pane "$(t display-message -p -t "$SESSION" '#{pane_id}')"
+exec tmux -L "$SOCKET" attach -t "$SESSION"
