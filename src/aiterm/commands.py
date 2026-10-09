@@ -119,7 +119,9 @@ class CommandLog:
     def _on_property(self, terminal, name):
         batch = self._batch
         if not batch.names:
-            GLib.idle_add(self._process)
+            # Above redraws: at idle priority, a busy screen (a spinner, a
+            # slow renderer) could starve it and the marks would never land
+            GLib.idle_add(self._process, priority=GLib.PRIORITY_HIGH_IDLE)
         batch.names.add(name)
         if name == STARTED:
             batch.started = True
