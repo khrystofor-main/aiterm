@@ -70,8 +70,9 @@ TOOLS = [
             "ask for it in the chat. Every sudo command asks for the password. "
             "If the result's status is `timeout`, the command is still running or waits for input: "
             "tell the user what to type, if anything, then call wait_for_command. "
-            "If the tool refuses because the user is typing or a program is running, tell the user "
-            "why; do not try to get around it."
+            "The user may be asked to approve each command; if they decline, do not run it another "
+            "way. If the tool refuses because the user is typing or a program is running, tell the "
+            "user why; do not try to get around it."
         ),
         "inputSchema": {
             "type": "object",
@@ -170,6 +171,9 @@ def _result(result):
     if result.status == "typing":
         raise ToolError(f"The user is typing in the terminal: «{result.command}». Nothing was typed. "
                         "Ask them to finish or clear the line (Ctrl+C), then retry.")
+    if result.status == "denied":
+        raise ToolError(f"The user chose not to run «{result.command}». Nothing was typed. Do not run it "
+                        "another way; ask the user what they want instead.")
     if result.status == "timeout":
         text = (f"[terminal folder: {result.folder}]\n{result.output}\n"
                 f"[status: timeout. The command is still running or waiting for input (now running: "

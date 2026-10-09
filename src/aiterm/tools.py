@@ -12,7 +12,7 @@ import sys
 
 from aiterm.client import NotInside, TerminalClient, Unreachable, format_command
 
-NOT_INSIDE, USAGE, BUSY, TIMEOUT = 1, 2, 3, 124
+NOT_INSIDE, USAGE, BUSY, DENIED, TIMEOUT = 1, 2, 3, 4, 124
 FALLBACK_LINES = 200
 
 
@@ -41,6 +41,9 @@ def run(client, command, timeout, wait_only):
         print(f"The terminal is busy: «{text}» is running. Nothing was typed.", file=sys.stderr)
         print("Wait for it (aiterm-run -w) or ask the user to finish the program.", file=sys.stderr)
         return BUSY
+    if status == "denied":
+        print(f"The user chose not to run «{text}». Nothing was typed.", file=sys.stderr)
+        return DENIED
     if status == "typing":
         print(f"The user is typing in the terminal: «{text}». Nothing was typed.", file=sys.stderr)
         print("Ask them to finish or clear the line (Ctrl+C), then retry.", file=sys.stderr)

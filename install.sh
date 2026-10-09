@@ -4,7 +4,8 @@
 #   - adds Aiterm to the applications menu
 #   - links the agy plugin (agy-plugin/: the MCP server and its rules) into
 #     ~/.gemini/config/plugins/aiterm
-#   - lets agy use the read-only terminal tools without asking every time
+#   - lets agy use the terminal tools without its own prompt: aiterm asks
+#     before each command itself (Preferences → Agent)
 # Running it again updates everything in place.
 set -euo pipefail
 
@@ -14,10 +15,11 @@ APPS="$HOME/.local/share/applications"
 RULES="$HOME/.gemini/GEMINI.md"
 PLUGIN="$HOME/.gemini/config/plugins/aiterm"
 AGY_SETTINGS="$HOME/.gemini/antigravity-cli/settings.json"
-# The tools that only read; run_command follows agy's own tool permission
-ALLOW='["mcp(aiterm_terminal/read_terminal)", "mcp(aiterm_terminal/get_cwd)", "mcp(aiterm_terminal/wait_for_command)"]'
-# What versions before the MCP server allowed
-OLD_ALLOW='["command(aiterm-left)", "command(aiterm-run)"]'
+# All four tools: aiterm itself asks before each command (the approval bar)
+ALLOW='["mcp(aiterm_terminal/*)"]'
+# What older versions allowed
+OLD_ALLOW='["command(aiterm-left)", "command(aiterm-run)", "mcp(aiterm_terminal/read_terminal)",
+  "mcp(aiterm_terminal/get_cwd)", "mcp(aiterm_terminal/wait_for_command)"]'
 BEGIN='<!-- aiterm:begin -->'
 END='<!-- aiterm:end -->'
 
@@ -82,14 +84,14 @@ if [ -f "$RULES" ] && grep -qxF "$BEGIN" "$RULES"; then
   echo "✓ Removed the old aiterm rules from $RULES (they come with the plugin now)"
 fi
 
-# 4. agy permissions: the read-only tools run without a prompt
+# 4. agy permissions: the tools run without agy's prompt; aiterm asks itself
 mkdir -p "$(dirname "$AGY_SETTINGS")"
 [ -s "$AGY_SETTINGS" ] || echo '{}' > "$AGY_SETTINGS"
 tmp=$(mktemp)
 jq --argjson allow "$ALLOW" --argjson old "$OLD_ALLOW" \
   '.permissions.allow = ((.permissions.allow // []) - $old + $allow | unique)' \
   "$AGY_SETTINGS" > "$tmp" && cat "$tmp" > "$AGY_SETTINGS" && rm "$tmp"
-echo "✓ agy may read the terminal without asking ($AGY_SETTINGS)"
+echo "✓ agy may use the terminal tools; aiterm asks before each command ($AGY_SETTINGS)"
 
 cat <<'EOF'
 
@@ -97,9 +99,10 @@ Done. Start it with `aiterm` or from the menu (Aiterm); Alt+Enter opens the agen
 Restart agy if it is running, so it loads the plugin.
 
 Optional:
-  - agy asks before every run_command. To stop the prompts, set Tool
-    Permission to always-proceed in agy's /config. sudo stays protected:
-    you type your password for every sudo command the agent runs.
+  - Aiterm asks before every command the agent runs (Run / Don't Run above
+    your terminal). To make it hands-free, turn off "Ask Before the Agent
+    Runs a Command" in Preferences → Agent. sudo stays protected: you type
+    your password for every sudo command the agent runs.
   - Want answers in your language? Add a line like "Always reply in Russian."
     to ~/.gemini/GEMINI.md.
 EOF

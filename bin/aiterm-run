@@ -6,7 +6,8 @@
 #   aiterm-run -w                 type nothing, just wait for the running command
 #
 # Exit codes: 0 done, 1 not inside aiterm, 2 usage, 3 terminal busy
-# (the user is typing or a program is running), 124 still running after the timeout.
+# (the user is typing or a program is running), 4 the user clicked Don't Run,
+# 124 still running after the timeout.
 # Talks to the Aiterm app over D-Bus (src/aiterm/tools.py, src/aiterm/dbus_api.py).
 set -euo pipefail
 

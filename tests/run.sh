@@ -44,8 +44,8 @@ check "…links the MCP server" "$ROOT/bin/aiterm-mcp" "$(readlink "$home/.local
 rules=$(cat "$home/.gemini/GEMINI.md")
 check "…moves the rules out of GEMINI.md, keeps the user's own" "[# Mine]" "[$rules]"
 perms=$(jq -c '[.model, .permissions.allow]' "$home/.gemini/antigravity-cli/settings.json")
-check "…allows the read-only tools, drops the old rules, keeps the user's" \
-  '["m",["command(ls)","mcp(aiterm_terminal/get_cwd)","mcp(aiterm_terminal/read_terminal)","mcp(aiterm_terminal/wait_for_command)"]]' "$perms"
+check "…allows the terminal tools, drops the old rules, keeps the user's" \
+  '["m",["command(ls)","mcp(aiterm_terminal/*)"]]' "$perms"
 HOME=$home PATH="$home/.local/bin:$PATH" "$ROOT/install.sh" >/dev/null 2>&1
 check "running it again changes nothing" "$perms" "$(jq -c '[.model, .permissions.allow]' "$home/.gemini/antigravity-cli/settings.json")"
 out=$(HOME=$home PATH="$home/.local/bin:$PATH" "$ROOT/uninstall.sh" 2>&1); code=$?

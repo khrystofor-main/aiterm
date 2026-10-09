@@ -140,6 +140,8 @@ def steps(app):
     style = Adw.StyleManager.get_default()
 
     check("window has one tab", win.tabs.get_n_pages() == 1)
+    # The approval bar has its own checks below; everything else runs straight away
+    Settings.get().approve_agent_commands = False
 
     # The shell starts asynchronously; input sent before the prompt is lost
     check("shell shows a prompt", wait_for(lambda: "$ " in screen_text(term)))
@@ -208,6 +210,47 @@ def steps(app):
     result = call("ReadScreen", (999_999,), "(u)", "(ss)")
     check("an unknown window is an error", isinstance(result, GLib.Error) and "NoWindow" in result.message,
           str(result))
+
+    # Approval: with the preference on, RunCommand waits for Run / Don't Run
+    Settings.get().approve_agent_commands = True
+
+    def run_async(command):
+        box = []
+        app.get_dbus_connection().call(
+            app.get_dbus_connection().get_unique_name(), app.get_dbus_object_path(), dbus_api.INTERFACE,
+            "RunCommand", GLib.Variant("(usu)", (win.get_id(), command, 10)), GLib.VariantType("(ssssi)"),
+            Gio.DBusCallFlags.NONE, 15_000, None, lambda conn, res: box.append(_finish_call(conn, res)))
+        return box
+
+    count = len(log.commands)
+    pending = run_async("echo approved")
+    check("an agent command waits for approval", wait_for(lambda: win.approval.pending)
+          and win.approval.get_reveal_child() and win.approval.command.get_label() == "echo approved")
+    spin(0.3)
+    check("…and nothing is typed meanwhile", not pending and len(log.commands) == count)
+    result = run("echo second")
+    check("a second command is refused while one waits", result[0] == "busy" and "approval" in result[2],
+          str(result))
+    win.approval.run_button.emit("clicked")
+    check("Run types it and returns the output",
+          wait_for(lambda: pending) and pending[0][:1] == ("done",) and pending[0][3] == "approved", str(pending))
+    check("…and hides the bar", not win.approval.pending and not win.approval.get_reveal_child())
+    pending = run_async("echo declined")
+    wait_for(lambda: win.approval.pending)
+    win.approval.skip_button.emit("clicked")
+    check("Don't Run returns denied and types nothing",
+          wait_for(lambda: pending) and pending[0][0] == "denied" and last().text != "echo declined",
+          str(pending))
+    pending = run_async("echo late")
+    wait_for(lambda: win.approval.pending)
+    term.feed_child(b"half")
+    wait_for(lambda: log.typed_text() == "half")
+    win.approval.run_button.emit("clicked")
+    check("Run after the user started typing is refused",
+          wait_for(lambda: pending) and pending[0][0] == "typing", str(pending))
+    term.feed_child(b"\x15")
+    wait_for(lambda: not log.typed_text())
+    Settings.get().approve_agent_commands = False
 
     # aiterm-left / aiterm-run as the agent runs them (separate processes)
     def run_tool(*argv, seconds=20):
@@ -299,6 +342,11 @@ def steps(app):
           not error and data.get("status") == "timeout" and "wait_for_command" in text, repr(text))
     error, text, data = tool("wait_for_command", timeout=10)
     check("…and wait_for_command gets the rest", not error and data.get("output") == "slow", repr(data))
+    Settings.get().approve_agent_commands = True
+    GLib.timeout_add(300, lambda: win.approval.answer(False))
+    error, text, data = tool("run_command", command="echo never")
+    check("a declined command is a tool error that says so", error and "chose not to run" in text, repr(text))
+    Settings.get().approve_agent_commands = False
     term.feed_child(b"cd ~\n")
     wait_for(lambda: last().text == "cd ~")
     exited = []
@@ -367,9 +415,12 @@ def steps(app):
         check("the dialog changes the palette", settings.palette == "Tango")
         dialog.system_font_row.set_active(True)
         check("the dialog switches back to the system font", settings.use_system_font)
+        dialog.approve_row.set_active(True)
+        check("the dialog turns command approval on", settings.approve_agent_commands)
         dialog.force_close()
     for key in settings.keys():  # back to defaults for the rest of the test
         settings.set_property(key, settings.find_property(key.replace("_", "-")).get_default_value())
+    settings.approve_agent_commands = False
 
     check("copy is disabled without a selection",
           not term.actions.get_action_enabled("copy"))

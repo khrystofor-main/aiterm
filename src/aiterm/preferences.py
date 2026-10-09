@@ -84,6 +84,22 @@ class PreferencesDialog(Adw.PreferencesDialog):
             behavior.add(group)
         self.add(behavior)
 
+        # Agent
+        commands = Adw.PreferencesGroup(
+            title="Commands",
+            description="The agent runs commands in your terminal, where you see them and their output.",
+        )
+        self.approve_row = Adw.SwitchRow(
+            title="Ask Before the Agent Runs a Command",
+            subtitle="Each command waits for Run above the terminal. Commands with sudo always ask for "
+                     "your password",
+        )
+        settings.bind_property("approve-agent-commands", self.approve_row, "active", BOTH_WAYS)
+        commands.add(self.approve_row)
+        agent = Adw.PreferencesPage(title="Agent", icon_name="chat-message-new-symbolic")
+        agent.add(commands)
+        self.add(agent)
+
 
 def combo_row(title, values, settings, key, labels=None):
     """An Adw.ComboRow that picks one of `values` for settings.<key>."""
