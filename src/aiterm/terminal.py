@@ -69,7 +69,9 @@ class Terminal(Vte.Terminal):
     }
     _serials = itertools.count(1)
 
-    def __init__(self, cwd=None):
+    def __init__(self, cwd=None, argv=None, env=None):
+        """Runs the user's shell, or `argv` (the agent panel runs agy this
+        way). `env` adds to or, with None values, removes from our environment."""
         super().__init__(hexpand=True, vexpand=True)
         self.set_mouse_autohide(True)
 
@@ -105,7 +107,7 @@ class Terminal(Vte.Terminal):
 
         self.serial = next(self._serials)  # names the terminal in notifications
         self._pid = None
-        self._spawn(cwd or GLib.get_home_dir())
+        self._spawn(cwd or GLib.get_home_dir(), argv or shell_command(), env or {})
 
     def title(self):
         if hasattr(Vte, "TERMPROP_XTERM_TITLE"):
@@ -283,12 +285,18 @@ class Terminal(Vte.Terminal):
                 pass
         return None
 
-    def _spawn(self, cwd):
+    def _spawn(self, cwd, argv, env):
+        environment = dict(os.environ)
+        for key, value in env.items():
+            if value is None:
+                environment.pop(key, None)
+            else:
+                environment[key] = value
         self.spawn_async(
             Vte.PtyFlags.DEFAULT,
             cwd,
-            shell_command(),
-            None,  # inherit our environment; VTE adds TERM and friends
+            argv,
+            [f"{k}={v}" for k, v in environment.items()],  # VTE adds TERM and friends
             GLib.SpawnFlags.DEFAULT,
             None, None,  # child setup
             -1,  # no timeout
@@ -299,7 +307,7 @@ class Terminal(Vte.Terminal):
     def _on_spawned(self, _terminal, pid, error, *_):
         self._pid = pid if pid > 0 else None
         if error:
-            self.feed(f"aiterm: could not start the shell: {error.message}\r\n".encode())
+            self.feed(f"aiterm: could not start the program: {error.message}\r\n".encode())
 
     def _on_child_exited(self, *_):
         self._pid = None
