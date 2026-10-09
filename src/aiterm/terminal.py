@@ -1,8 +1,10 @@
 """A VTE terminal widget that runs the user's shell and follows the system
 look and the user's preferences."""
 
+import itertools
 import os
 import shlex
+import time
 
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango, Vte
 
@@ -46,7 +48,10 @@ class Terminal(Vte.Terminal):
     __gsignals__ = {
         "title-changed": (GObject.SignalFlags.RUN_FIRST, None, (str,)),
         "exited": (GObject.SignalFlags.RUN_FIRST, None, ()),
+        # exit code, seconds; needs the shell integration in Ubuntu's bash
+        "command-finished": (GObject.SignalFlags.RUN_FIRST, None, (int, float)),
     }
+    _serials = itertools.count(1)
 
     def __init__(self, cwd=None):
         super().__init__(hexpand=True, vexpand=True)
@@ -76,10 +81,12 @@ class Terminal(Vte.Terminal):
         else:
             self.connect("window-title-changed", self._on_title)
         self.connect("child-exited", self._on_child_exited)
+        self._watch_commands()
         self._add_clipboard_actions()
         self._add_links()
         self._add_file_drop()
 
+        self.serial = next(self._serials)  # names the terminal in notifications
         self._pid = None
         self._spawn(cwd or GLib.get_home_dir())
 
@@ -144,6 +151,43 @@ class Terminal(Vte.Terminal):
 
         self.set_context_menu_model(self.context_menu_at(None, None))
         self.connect("setup-context-menu", self._on_setup_context_menu)
+
+    def _watch_commands(self):
+        """Times each command with the shell integration in Ubuntu's bash
+        (/etc/profile.d/vte-2.91.sh): it signals vte.shell.preexec when a
+        command starts, then sets vte.shell.postexec to the exit code and
+        signals vte.shell.precmd when the prompt comes back.
+
+        VTE reports these in batches, in no particular order, so they are
+        collected and looked at together once the batch is over. A command
+        that starts and ends within one batch was short and is not reported.
+        The exit code is only readable during its own signal, so it is kept."""
+        self._command_started = None
+        self._shell_events = set()
+        self._exit_code = 0
+        for prop in (Vte.TERMPROP_SHELL_PREEXEC, Vte.TERMPROP_SHELL_PRECMD, Vte.TERMPROP_SHELL_POSTEXEC):
+            self.connect(f"termprop-changed::{prop}", self._on_shell_event)
+
+    def _on_shell_event(self, _terminal, name):
+        if name == Vte.TERMPROP_SHELL_POSTEXEC:
+            valid, code = self.get_termprop_uint(name)
+            self._exit_code = code if valid else 0
+            return
+        if not self._shell_events:
+            GLib.idle_add(self._process_shell_events)
+        self._shell_events.add(name)
+
+    def _process_shell_events(self):
+        started = Vte.TERMPROP_SHELL_PREEXEC in self._shell_events
+        finished = Vte.TERMPROP_SHELL_PRECMD in self._shell_events
+        self._shell_events = set()
+        if finished and self._command_started is not None:
+            seconds = time.monotonic() - self._command_started
+            self._command_started = None
+            self.emit("command-finished", self._exit_code, seconds)
+        elif started and not finished:
+            self._command_started = time.monotonic()
+        return GLib.SOURCE_REMOVE
 
     def _add_file_drop(self):
         """Dropping files (from Files, a browser download bar…) types their

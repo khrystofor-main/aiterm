@@ -6,7 +6,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 gi.require_version("Vte", "3.91")
 
-from gi.repository import Adw, Gdk, Gio, Gtk  # noqa: E402
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
 from aiterm import APP_ID, VERSION  # noqa: E402
 from aiterm import terminal, window  # noqa: E402
@@ -76,6 +76,10 @@ class Application(Adw.Application):
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", lambda *_, callback=callback: callback())
             self.add_action(action)
+        # From a "command finished" notification: (window id, terminal serial)
+        show = Gio.SimpleAction.new("show-terminal", GLib.VariantType.new("(uu)"))
+        show.connect("activate", lambda _action, target: self.show_terminal(*target.unpack()))
+        self.add_action(show)
 
     def do_activate(self):
         # Launching the app again (menu, dock) opens another window in the same
@@ -87,6 +91,11 @@ class Application(Adw.Application):
         current = self.get_active_window()
         terminal = current.current_terminal() if current else None
         Window(application=self, cwd=terminal.current_directory() if terminal else None).present()
+
+    def show_terminal(self, window_id, serial):
+        window = self.get_window_by_id(window_id)
+        if window:
+            window.show_terminal(serial)
 
     def show_preferences(self):
         PreferencesDialog().present(self.get_active_window())

@@ -29,6 +29,7 @@ class Settings(GObject.Object):
     cursor_shape = GObject.Property(type=str, default="block")
     cursor_blink = GObject.Property(type=bool, default=True)
     audible_bell = GObject.Property(type=bool, default=False)
+    notify_long_commands = GObject.Property(type=bool, default=True)
     # Not in the dialog: the size of the last window closed, for the next one
     window_width = GObject.Property(type=int, default=960, minimum=200, maximum=20_000)
     window_height = GObject.Property(type=int, default=600, minimum=150, maximum=20_000)
