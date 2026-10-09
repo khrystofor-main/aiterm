@@ -2,7 +2,11 @@
 
 **An AI terminal for Ubuntu: your shell on the left, an AI agent on the right that sees your terminal and runs commands in it — in plain sight.**
 
-<!-- TODO: demo GIF -->
+[![Tests](https://github.com/khrystofor-main/aiterm/actions/workflows/tests.yml/badge.svg)](https://github.com/khrystofor-main/aiterm/actions/workflows/tests.yml)
+
+![The agent reads a failed command, fixes the config and, after Run, re-runs it in the user's terminal](docs/demo.gif)
+
+*Recorded with `packaging/demo.py`: the real app and the real agy, in the Chat view.*
 
 Ask *"why did this fail?"* and the agent reads the command you just ran. Ask *"install docker"* and you watch the commands appear in your own shell, one by one. When something needs `sudo`, the agent stops and you type the password yourself.
 
@@ -153,7 +157,7 @@ evals/run.py --update-readme       # and write the table above
 - [x] **v0.4 — own MCP server.** Terminal tools (`read_terminal`, `run_command`, `get_cwd`, …) exposed to the agent over MCP instead of shell scripts and prompt rules. Shell integration gives exact command boundaries and exit codes, so a custom `PS1` no longer matters. *Done when the agent uses the tools without instructions in `GEMINI.md`.* ([plan](docs/v0.4-plan.md))
 - [x] **v0.5 — native chat UI** *(optional)*. The agent panel drawn by the app instead of agy's TUI: messages, collapsible command blocks, approval buttons, driven through `agy --output-format stream-json`. ([plan](docs/v0.5-plan.md))
 - [x] **v0.6 — evals.** A suite of broken-system scenarios (missing package, typo, broken config, missing permissions) run automatically in an isolated environment. Metrics: solved or not, steps, tokens. Results published in this README. ([plan](docs/v0.6-plan.md), [results](#evals))
-- [ ] **v1.0 — release.** A `.deb` or Flatpak package, demo GIF, CI on GitHub Actions running the tests, a tagged release.
+- [x] **v1.0 — release.** A `.deb` package, demo GIF, CI on GitHub Actions running the tests, a tagged release. ([plan](docs/v1.0-plan.md))
 
 ## License
 
