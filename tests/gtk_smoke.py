@@ -154,6 +154,47 @@ def animations_page(page):
         page.show_effect(effect)
     check("Show plays the effects in the preview",
           len(preview.shakes) == 1 and len(preview.marks) == 1 and preview.blend is not None)
+    chat = page.chat_preview
+    page.get_ancestor(Adw.PreferencesDialog).set_visible_page(page)
+    wait_for(lambda: chat.get_mapped() or page.previews.set_visible_child_name("chat"), 2)
+    page.show_effect("stream")
+    check("Show for a chat effect plays a short exchange in a preview chat",
+          page.previews.get_visible_child_name() == "chat" and chat.process.busy)
+    user = chat.messages.get_first_child()
+    check("…a new message fades in, rising from below", user.get_opacity() < 1 and user.get_margin_top() > 0,
+          f"{user.get_opacity()} {user.get_margin_top()}")
+    animations.finish_all()
+    check("…and settles", user.get_opacity() == 1 and user.get_margin_top() == 0)
+    check("…three dots pulse while the agent works",
+          chat.thinking.get_visible() and chat.dots.has_css_class("typing-animated"))
+    blocks = lambda: [w for w in widgets(chat.messages) if isinstance(w, CommandRow)]
+    check("…a command block has a running bar while it runs",
+          wait_for(lambda: blocks(), 3) and blocks()[0].running_bar.get_visible()
+          and not blocks()[0].spinner.get_visible())
+    check("…and lights up as the agent runs it in the terminal",
+          wait_for(lambda: blocks()[0].has_css_class("agent-link"), 3))
+    check("…the bar goes when it is done", wait_for(lambda: not blocks()[0].running, 3)
+          and not blocks()[0].running_bar.get_visible())
+    answer = lambda: [w for w in widgets(chat.messages) if w.has_css_class("chat-agent")]
+    check("…the answer fades in piece by piece as it streams",
+          wait_for(lambda: answer() and answer()[0].get_attributes() is not None, 3))
+    check("…and the dots go at the end", wait_for(lambda: not chat.thinking.get_visible(), 5))
+    animations.finish_all()
+    for i in range(12):
+        chat.add_note(f"note {i}")
+    animations.finish_all()
+    scroll = chat.scroller.get_vadjustment()
+    wait_for(lambda: scroll.get_upper() > scroll.get_page_size() * 1.5, 3)
+    animations.finish_all()  # the glide to the end
+    scroll.set_value(0)  # the user scrolls up
+    chat.add_note("one more")
+    check("scrolled up, new messages do not move the chat, a button offers them",
+          wait_for(lambda: chat.new_button.get_visible(), 2) and scroll.get_value() == 0, str(scroll.get_value()))
+    chat.new_button.emit("clicked")
+    animations.finish_all()
+    check("…and takes you down to them", not chat.new_button.get_visible()
+          and scroll.get_value() >= scroll.get_upper() - scroll.get_page_size() - 1,
+          f"{scroll.get_value()} {scroll.get_upper()} {scroll.get_page_size()}")
     window = page.get_root()
     page.show_effect("approval")
     check("…and the window's own parts behind the dialog", window.approval.get_reveal_child()
@@ -282,6 +323,13 @@ def steps(app):
     wait_for(lambda: not log.running)
     check("…then green, as it succeeded", fx.stripes and all(r.color == "success" for r in fx.stripes)
           and not fx.marks, str([r.color for r in fx.stripes]))
+    fx.clear()
+    fx.agent_command()
+    term.feed_child(b"echo linked\n")
+    wait_for(lambda: last().text == "echo linked")
+    check("the agent's command lights its output in the link color, kept to the end",
+          fx.stripes and all(r.color == "link" for r in fx.stripes) and not fx._linked,
+          str([r.color for r in fx.stripes]))
     fx.clear()
 
     term.feed_child(b"seq 1 200000\n")

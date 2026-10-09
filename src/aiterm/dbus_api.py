@@ -135,6 +135,11 @@ class TerminalApi:
             # Drop cached credentials: every sudo command from the agent needs
             # the password, typed by the user in their terminal
             subprocess.run(["sudo", "-K"], stdin=subprocess.DEVNULL, capture_output=True)
+        # Its output's stripe and its block in the chat light up in one color
+        terminal.effects.agent_command()
+        window = terminal.get_root()
+        if window is not None and hasattr(window, "approval"):
+            window.approval.emit("agent-ran", command)
         terminal.feed_child(command.encode() + b"\r")
         self._wait_for_command(invocation, terminal, timeout)
 
