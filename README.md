@@ -57,7 +57,17 @@ Rules and tool descriptions are instructions to a model, not hard guarantees; th
 
 ## Install
 
-Requirements: Ubuntu (or another Linux with GNOME and bash), Python 3 with GTK 4, libadwaita and VTE for GTK 4, `jq`, and [`agy`](https://antigravity.google/docs/cli/install) signed in.
+Requirements: Ubuntu 26.04 or newer (or another Linux with GNOME, bash, VTE 0.80+ and libadwaita 1.8+), and [`agy`](https://antigravity.google/docs/cli/install) signed in.
+
+**From the package.** Download `aiterm_<version>_all.deb` from the [latest release](https://github.com/khrystofor-main/aiterm/releases/latest) and install it; apt pulls in GTK, libadwaita, VTE and `jq`:
+
+```bash
+sudo apt install ./aiterm_*_all.deb
+```
+
+The first time you open the agent panel, Aiterm asks to connect agy: it adds its plugin to `~/.gemini/config/plugins/aiterm` and lets agy call the terminal tools (the app still asks before each command). `aiterm-agent-setup --remove` undoes that.
+
+**From the repository**, to follow `main`:
 
 ```bash
 sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-vte-3.91 jq
@@ -66,7 +76,7 @@ cd aiterm
 ./install.sh
 ```
 
-The installer (no sudo) links the commands into `~/.local/bin`, adds **Aiterm** to the applications menu, links the agy plugin into `~/.gemini/config/plugins/aiterm`, and lets `agy` call the terminal tools without its own prompt (the app asks before each command instead). Run it again after `git pull` to update (it also moves the rules of older versions out of `~/.gemini/GEMINI.md`); `./uninstall.sh` removes everything it added. There is no build step: the app runs from the repository.
+The installer (no sudo) links the commands into `~/.local/bin`, adds **Aiterm** to the applications menu and connects agy the same way (`bin/aiterm-agent-setup`). Run it again after `git pull` to update (it also moves the rules of older versions out of `~/.gemini/GEMINI.md`); `./uninstall.sh` removes everything it added. There is no build step: the app runs from the repository, and `packaging/build-deb.sh` builds the package from it.
 
 ## Usage
 

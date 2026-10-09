@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# aiterm-agent-setup — connects agy to aiterm for the current user:
+#   - links the aiterm plugin (the MCP server and its rules) into
+#     ~/.gemini/config/plugins/aiterm
+#   - lets agy call the terminal tools without its own prompt (aiterm asks
+#     before each command itself)
+#   - removes the rules block older versions wrote into ~/.gemini/GEMINI.md
+#
+#   aiterm-agent-setup            set up (again: updates in place)
+#   aiterm-agent-setup --check    exit 0 when agy has an aiterm plugin (this
+#                                 copy's or another's), 1 when not
+#   aiterm-agent-setup --remove   undo
+#
+# install.sh runs it; with the .deb package the agent panel offers it.
+set -euo pipefail
+
+ROOT=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
+PLUGIN="$HOME/.gemini/config/plugins/aiterm"
+RULES="$HOME/.gemini/GEMINI.md"
+AGY_SETTINGS="$HOME/.gemini/antigravity-cli/settings.json"
+ALLOW='["mcp(aiterm_terminal/*)"]'
+# What older versions allowed
+OLD_ALLOW='["command(aiterm-left)", "command(aiterm-run)", "mcp(aiterm_terminal/read_terminal)",
+  "mcp(aiterm_terminal/get_cwd)", "mcp(aiterm_terminal/wait_for_command)"]'
+BEGIN='<!-- aiterm:begin -->'
+END='<!-- aiterm:end -->'
+
+ours() { [ -L "$PLUGIN" ] && [ "$(readlink -f "$PLUGIN")" = "$ROOT/agy-plugin" ]; }
+
+# Our old rules block out of GEMINI.md; everything else in the file stays
+drop_rules() {
+  [ -f "$RULES" ] && grep -qxF "$BEGIN" "$RULES" || return 0
+  local tmp
+  tmp=$(mktemp)
+  awk -v b="$BEGIN" -v e="$END" '$0 == b {skip=1} !skip {print} $0 == e {skip=0}' "$RULES" > "$tmp"
+  sed -i -e :a -e '/^\n*$/{$d;N;ba' -e '}' "$tmp"  # the blank lines left at the end
+  cat "$tmp" > "$RULES" && rm "$tmp"
+  echo "✓ Removed the old aiterm rules from $RULES (they come with the plugin now)"
+}
+
+case "${1:-}" in
+  --check)
+    [ -e "$PLUGIN" ]
+    ;;
+  --remove)
+    if ours; then rm "$PLUGIN"; fi
+    drop_rules
+    if [ -f "$AGY_SETTINGS" ] && command -v jq >/dev/null; then
+      tmp=$(mktemp)
+      jq --argjson allow "$ALLOW" --argjson old "$OLD_ALLOW" \
+        'if .permissions.allow then .permissions.allow -= ($allow + $old) else . end' \
+        "$AGY_SETTINGS" > "$tmp" && cat "$tmp" > "$AGY_SETTINGS" && rm "$tmp"
+    fi
+    echo "✓ agy is no longer connected to aiterm"
+    ;;
+  "")
+    command -v jq >/dev/null || { echo "Missing jq (sudo apt install jq)" >&2; exit 1; }
+    mkdir -p "$(dirname "$PLUGIN")"
+    if [ -e "$PLUGIN" ] && ! ours; then
+      mv "$PLUGIN" "$PLUGIN.bak.$(date +%s)"
+      echo "Backed up the old $PLUGIN"
+    fi
+    ln -sfn "$ROOT/agy-plugin" "$PLUGIN"
+    echo "✓ agy plugin: $PLUGIN (tools: read_terminal, run_command, wait_for_command, get_cwd)"
+    drop_rules
+    mkdir -p "$(dirname "$AGY_SETTINGS")"
+    [ -s "$AGY_SETTINGS" ] || echo '{}' > "$AGY_SETTINGS"
+    tmp=$(mktemp)
+    jq --argjson allow "$ALLOW" --argjson old "$OLD_ALLOW" \
+      '.permissions.allow = ((.permissions.allow // []) - $old + $allow | unique)' \
+      "$AGY_SETTINGS" > "$tmp" && cat "$tmp" > "$AGY_SETTINGS" && rm "$tmp"
+    echo "✓ agy may use the terminal tools; aiterm asks before each command ($AGY_SETTINGS)"
+    ;;
+  *)
+    echo "Usage: aiterm-agent-setup [--check | --remove]" >&2
+    exit 2
+    ;;
+esac

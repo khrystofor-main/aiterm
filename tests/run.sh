@@ -46,14 +46,34 @@ check "…moves the rules out of GEMINI.md, keeps the user's own" "[# Mine]" "[$
 perms=$(jq -c '[.model, .permissions.allow]' "$home/.gemini/antigravity-cli/settings.json")
 check "…allows the terminal tools, drops the old rules, keeps the user's" \
   '["m",["command(ls)","mcp(aiterm_terminal/*)"]]' "$perms"
+HOME=$home "$ROOT/bin/aiterm-agent-setup" --check; code=$?
+check "aiterm-agent-setup --check sees the plugin" "0" "$code"
 HOME=$home PATH="$home/.local/bin:$PATH" "$ROOT/install.sh" >/dev/null 2>&1
 check "running it again changes nothing" "$perms" "$(jq -c '[.model, .permissions.allow]' "$home/.gemini/antigravity-cli/settings.json")"
 out=$(HOME=$home PATH="$home/.local/bin:$PATH" "$ROOT/uninstall.sh" 2>&1); code=$?
 check "uninstall.sh succeeds" "0" "$code"
 left="plugins: $(ls -A "$home/.gemini/config/plugins" | tr '\n' ' ')| bin: $(ls -A "$home/.local/bin" | tr '\n' ' ')|"
 check "…removes the plugin and the commands" "plugins: | bin: agy |" "$left"
+HOME=$home "$ROOT/bin/aiterm-agent-setup" --check; code=$?
+check "…and --check sees it gone" "1" "$code"
 check "…and the permissions it added" '["command(ls)"]' "$(jq -c .permissions.allow "$home/.gemini/antigravity-cli/settings.json")"
 rm -rf "$home"
+
+echo "package"
+if command -v dpkg-deb >/dev/null; then
+  deb=$("$ROOT/packaging/build-deb.sh" 2>&1); code=$?
+  check "build-deb.sh builds the package" "0" "$code"
+  if [ $code = 0 ]; then
+    files=$(dpkg-deb -c "$deb")
+    check "…with the app under /usr/lib/aiterm" "./usr/lib/aiterm/src/aiterm/mcp_server.py" "$files"
+    check "…the commands in /usr/bin" "./usr/bin/aiterm-mcp -> ../lib/aiterm/bin/aiterm-mcp" "$files"
+    check "…the launcher" "./usr/share/applications/io.github.khrystofor_main.Aiterm.desktop" "$files"
+    check "…and the dependencies" "gir1.2-vte-3.91 (>= 0.80)" "$(dpkg-deb -f "$deb" Depends)"
+    rm -f "$deb"
+  fi
+else
+  echo "  skip package: no dpkg-deb"
+fi
 
 echo "MCP server"
 "$ROOT/tests/mcp_protocol.py"; code=$?

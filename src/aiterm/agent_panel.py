@@ -15,8 +15,9 @@ panel opens.
 import os
 import shlex
 import shutil
+import subprocess
 
-from gi.repository import Adw, Gtk
+from gi.repository import Adw, GLib, Gtk
 
 from aiterm.chat import AgentProcess, chat_command
 from aiterm.chat_view import ChatView
@@ -37,6 +38,17 @@ def agent_command():
     return [agy] if os.access(agy, os.X_OK) else None
 
 
+SETUP = os.path.join(BIN, "aiterm-agent-setup")
+
+
+def needs_setup():
+    """True when agy has no aiterm plugin yet (installed from the .deb, not
+    with install.sh). Never for an AITERM_AGENT stand-in."""
+    if os.environ.get("AITERM_AGENT") or os.environ.get("AITERM_CHAT_AGENT"):
+        return False
+    return subprocess.run([SETUP, "--check"], capture_output=True).returncode == 1
+
+
 class AgentPanel(Adw.Bin):
     def __init__(self, window):
         super().__init__(width_request=MIN_WIDTH)
@@ -44,6 +56,7 @@ class AgentPanel(Adw.Bin):
         self.window = window
         self.terminal = None  # the terminal view's agy
         self.chat = None  # the chat view
+        self.setup_declined = False
         handler = Settings.get().connect("notify::agent-view", lambda *_: self.restart())
         window.connect("destroy", lambda *_: self._on_window_destroyed(handler))
 
@@ -62,6 +75,8 @@ class AgentPanel(Adw.Bin):
                 f'<a href="{INSTALL_URL}">How to install agy</a>',
             )
             return
+        if not self.setup_declined and needs_setup():
+            return self._offer_setup()
         user_terminal = self.window.current_terminal()
         cwd = user_terminal.current_directory() if user_terminal else None
         if chat:
@@ -115,6 +130,39 @@ class AgentPanel(Adw.Bin):
         restart.add_css_class("suggested-action")
         restart.connect("clicked", lambda *_: self.focus())
         self._show_status("Agent Stopped", "The agent has exited.", restart)
+
+    def _offer_setup(self):
+        """Asks before changing the user's agy configuration: the changes are
+        the same as install.sh's (bin/aiterm-agent-setup)."""
+        self.connect_button = Gtk.Button(label="Connect")
+        self.connect_button.add_css_class("pill")
+        self.connect_button.add_css_class("suggested-action")
+        self.connect_button.connect("clicked", lambda *_: self._run_setup())
+        self.skip_button = Gtk.Button(label="Not Now")
+        self.skip_button.add_css_class("pill")
+        self.skip_button.connect("clicked", lambda *_: self._skip_setup())
+        buttons = Gtk.Box(spacing=12, halign=Gtk.Align.CENTER)
+        buttons.append(self.skip_button)
+        buttons.append(self.connect_button)
+        self._show_status(
+            "Connect agy to Aiterm",
+            "So the agent can read your terminal and run commands in it, Aiterm adds its plugin to agy "
+            "(~/.gemini/config/plugins/aiterm) and lets agy call its tools. Aiterm still asks before "
+            "every command. Undo with <tt>aiterm-agent-setup --remove</tt>.",
+            buttons,
+        )
+
+    def _run_setup(self):
+        done = subprocess.run([SETUP], capture_output=True, text=True)
+        if done.returncode:
+            self._show_status("Could Not Connect agy", GLib.markup_escape_text(
+                (done.stderr or done.stdout).strip() or f"aiterm-agent-setup exited with {done.returncode}"))
+            return
+        self.focus()
+
+    def _skip_setup(self):
+        self.setup_declined = True
+        self.focus()
 
     def _show_status(self, title, description, child=None):
         self.set_child(Adw.StatusPage(
