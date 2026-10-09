@@ -95,9 +95,10 @@ Integration tests drive a real bash in a throwaway tmux server: reading the last
 ## Roadmap
 
 - [x] **v0.1** — tmux-based prototype: read and run tools, rules, sudo guard, installer, tests
-- [ ] **v0.2** — native GTK4 + VTE app: one window, terminal and agent panel, no tmux ([plan](docs/v0.2-plan.md))
-- [ ] **v0.3** — own MCP server: terminal tools exposed to the agent over MCP instead of shell scripts
-- [ ] **v0.4** — evals: a suite of broken-system scenarios to measure how well the agent diagnoses and fixes them
+- [x] **v0.2** — native GTK4 + VTE terminal: tabs, search, preferences, command log, an empty agent panel ([plan](docs/v0.2-plan.md))
+- [ ] **v0.3** — the agent (agy) in the panel; the tools talk to the app over D-Bus instead of tmux ([plan](docs/v0.3-plan.md))
+- [ ] **v0.4** — own MCP server: terminal tools exposed to the agent over MCP instead of shell scripts
+- [ ] **v0.5** — evals: a suite of broken-system scenarios to measure how well the agent diagnoses and fixes them
 
 ## License
 
