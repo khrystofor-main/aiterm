@@ -31,6 +31,8 @@ class Settings(GObject.Object):
     cursor_blink = GObject.Property(type=bool, default=True)
     audible_bell = GObject.Property(type=bool, default=False)
     notify_long_commands = GObject.Property(type=bool, default=True)
+    # Effects over the terminal (effects.py)
+    animations = GObject.Property(type=bool, default=True)
     # The agent's commands wait for Run in the approval bar (approval.py)
     approve_agent_commands = GObject.Property(type=bool, default=True)
     # agy's own interface in a terminal, or the app's chat (agent_panel.py)

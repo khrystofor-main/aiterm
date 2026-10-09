@@ -46,9 +46,18 @@ class PreferencesDialog(Adw.PreferencesDialog):
                                GObject.BindingFlags.SYNC_CREATE | GObject.BindingFlags.INVERT_BOOLEAN)
         text.add(font_row)
 
+        motion = Adw.PreferencesGroup(title="Animations")
+        self.animations_row = Adw.SwitchRow(
+            title="Animations",
+            subtitle="A failed command's line shakes; new output gets a fading stripe on the left",
+        )
+        settings.bind_property("animations", self.animations_row, "active", BOTH_WAYS)
+        motion.add(self.animations_row)
+
         appearance = Adw.PreferencesPage(title="Appearance", icon_name="applications-graphics-symbolic")
         appearance.add(colors)
         appearance.add(text)
+        appearance.add(motion)
         self.add(appearance)
 
         # Behavior

@@ -48,9 +48,11 @@ class Command:
     exit_code: int
     seconds: float
     # Rows in the terminal (VTE counts from the start of the scrollback):
-    # the prompt's first row, and the row of the next prompt
+    # the prompt's first row, the row the command was typed on, and the row
+    # of the next prompt
     start_row: int = 0
     end_row: int = 0
+    input_row: int = 0
 
 
 @dataclass
@@ -91,6 +93,11 @@ class CommandLog:
     def running(self):
         """True between a command's start and its end."""
         return self._running is not None
+
+    @property
+    def input_row(self):
+        """The row the running or next command is typed on, or None."""
+        return self._prompt.input_row if self._prompt else None
 
     def typed_text(self):
         """What the user has typed after the current prompt, or None when
@@ -195,7 +202,7 @@ class CommandLog:
                 row = first + above[:at].count("\n")
                 start = _Prompt(row, row, len(above[:at].rsplit("\n", 1)[-1]))
         if start and end and start.row <= end.row:
-            command.start_row, command.end_row = start.row, end.row
+            command.start_row, command.end_row, command.input_row = start.row, end.row, start.input_row
             # Every prompt starts at column 0 (OSC 133;L), so the command and
             # its output run up to the start of the next prompt's first row
             block, _ = self.terminal.get_text_range_format(

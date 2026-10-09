@@ -8,6 +8,7 @@ import shlex
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango, Vte
 
 from aiterm.commands import CommandLog
+from aiterm.effects import TerminalEffects
 from aiterm.palettes import PALETTES
 from aiterm.settings import Settings
 from aiterm.shortcuts import add_capture_shortcuts
@@ -101,10 +102,12 @@ class Terminal(Vte.Terminal):
         self.connect("child-exited", self._on_child_exited)
         self.command_log = CommandLog(
             self, lambda c: self.emit("command-finished", c.exit_code, c.seconds))
+        self.effects = TerminalEffects(self, self.settings)
         self._add_clipboard_actions()
         self._add_links()
         self._add_file_drop()
 
+        self._row_offset = None  # see row_offset()
         self.serial = next(self._serials)  # names the terminal in notifications
         self._pid = None
         # The shell's process group, seen at its first prompt: not the
@@ -203,16 +206,43 @@ class Terminal(Vte.Terminal):
 
     def scroll_to_prompt(self, older):
         """Scrolls the previous / next prompt to the top of the view."""
-        adjustment = self.get_vadjustment()
-        top = adjustment.get_value()
+        offset = self.row_offset()
+        top = self.get_vadjustment().get_value() + offset
         rows = self.command_log.prompt_rows
         targets = [r for r in rows if r < top] if older else [r for r in rows if r > top]
         if targets:
-            adjustment.set_value(max(targets) if older else min(targets))
+            self.get_vadjustment().set_value((max(targets) if older else min(targets)) - offset)
+
+    def row_offset(self):
+        """VTE numbers rows from the start of the scrollback (the cursor, the
+        text, the command log), but scrolls in rows counted from the oldest
+        row it still keeps: the two part ways once old rows are dropped
+        (`clear`, a full scrollback). This is the difference, found by
+        matching the visible text against the rows the cursor allows."""
+        rows = self.get_row_count()
+        adjustment = self.get_vadjustment()
+        value = round(adjustment.get_value())
+        # The screen's top in scroll rows; the cursor is on the screen
+        screen_top = round(adjustment.get_upper()) - rows
+        _, cursor = self.get_cursor_position()
+        visible = self.get_text_format(Vte.Format.TEXT)
+        candidates = [self._row_offset] + [cursor - row - screen_top for row in range(rows - 1, -1, -1)]
+        for offset in candidates:
+            if offset is None or offset < 0:
+                continue
+            text, _ = self.get_text_range_format(Vte.Format.TEXT, value + offset, 0, value + offset + rows, 0)
+            if text == visible:
+                self._row_offset = offset
+                return offset
+        return self._row_offset or 0
+
+    def top_row(self):
+        """The row (counted from the start of the scrollback) at the top of the view."""
+        return round(self.get_vadjustment().get_value()) + self.row_offset()
 
     def row_at(self, y):
         """The terminal row (counted from the start of the scrollback) at widget y."""
-        return int(self.get_vadjustment().get_value() + (y - PADDING_Y) // self.get_char_height())
+        return int(self.top_row() + (y - PADDING_Y) // self.get_char_height())
 
     def context_menu_at(self, x, y):
         """The right-click menu, with link items when (x, y) is on a link and
@@ -324,6 +354,10 @@ class Terminal(Vte.Terminal):
     def _on_child_exited(self, *_):
         self._pid = None
         self.emit("exited")
+
+    def do_snapshot(self, snapshot):
+        Vte.Terminal.do_snapshot(self, snapshot)
+        self.effects.draw(snapshot, lambda s: Vte.Terminal.do_snapshot(self, s))
 
     def _on_title(self, *_):
         self.emit("title-changed", self.title())

@@ -33,7 +33,7 @@ except (ImportError, ValueError) as e:
     sys.exit(SKIP)
 
 import aiterm.window as window_module  # noqa: E402
-from aiterm import dbus_api  # noqa: E402
+from aiterm import dbus_api, effects  # noqa: E402
 from aiterm.application import Application  # noqa: E402
 from aiterm.chat_view import CommandRow, markdown_to_pango  # noqa: E402
 from aiterm.palettes import PALETTES  # noqa: E402
@@ -182,6 +182,48 @@ def steps(app):
           wait_for(lambda: last().text == "printf 'no newline'") and last().output == "no newline", repr(last()))
     check("the prompt after it starts on its own line",
           wait_for(lambda: "no newline\n" in screen_text(term)), screen_text(term)[-200:])
+
+    # `clear` drops the scrollback: VTE's scroll rows then part ways with
+    # the rows the command log counts, and the effects need the latter
+    before = log.input_row
+    term.feed_child(b"clear\n")
+    ok = wait_for(lambda: log.input_row != before and term.top_row() == log.input_row, 5)
+    check("after clear, the view's top row is the new prompt's", ok,
+          f"top {term.top_row()} prompt {log.input_row} offset {term.row_offset()}")
+
+    # Effects (effects.py), on a clock moved by hand
+    fx = term.effects
+    now = [0.0]
+    fx.clock = lambda: now[0]
+    fx.clear()
+    term.feed_child(b"ls /no-such-folder\n")
+    ok = wait_for(lambda: last().text == "ls /no-such-folder" and fx.shakes)
+    check("a failed command's line shakes", ok and fx.shakes[0][0] == last().input_row,
+          f"{fx.shakes} {last()}")
+    check("…its output gets a stripe",
+          any(first <= last().input_row + 1 <= l for first, l, _ in fx.stripes), f"{fx.stripes} {last()}")
+    check("…not the command's own line", all(first > last().input_row for first, _, _ in fx.stripes),
+          str(fx.stripes))
+    now[0] += effects.SHAKE_MS
+    fx.prune()
+    check("the shake is over after its time", not fx.shakes and fx.stripes, f"{fx.shakes} {fx.stripes}")
+    now[0] += effects.STRIPE_MS
+    check("…and the stripe has faded", wait_for(lambda: not fx.active(), 2), str(fx.stripes))
+    for command in (b"grep -q nothing /dev/null\n", b"sh -c 'kill -INT $$'\n"):
+        term.feed_child(command)
+        wait_for(lambda: last().text == command.decode().strip())
+    check("no shake for grep's 'no match' or Ctrl+C", not fx.shakes, f"{fx.shakes} {last()}")
+    term.feed_child(b"for i in 1 2 3; do echo line $i; sleep 0.3; done\n")
+    ok = wait_for(lambda: len(fx.stripes) >= 2 and log.running, 3)
+    check("output of a running command lights up as it comes", ok, str(fx.stripes))
+    wait_for(lambda: not log.running)
+    Settings.get().animations = False
+    term.feed_child(b"false\n")
+    wait_for(lambda: last().text == "false" and not log.running)
+    spin(0.3)
+    check("with animations off, nothing animates", not fx.active(), f"{fx.shakes} {fx.stripes}")
+    Settings.get().animations = True
+    fx.clock = effects._monotonic_ms
 
     # The agent's API, called over D-Bus like the tools do
     def call(method, args, signature, reply_type, seconds=15):
@@ -372,12 +414,11 @@ def steps(app):
     term.feed_child(b"seq 300\n")
     wait_for(lambda: last().text == "seq 300")
     seq = last()
-    adjustment = term.get_vadjustment()
-    wait_for(lambda: adjustment.get_value() > seq.start_row, 2)
+    wait_for(lambda: term.top_row() > seq.start_row, 2)
     term.actions.activate_action("previous-prompt", None)
-    check("Ctrl+Shift+Up scrolls to the previous prompt", adjustment.get_value() == seq.start_row,
-          f"{adjustment.get_value()} vs {seq.start_row}")
-    y = (seq.start_row + 3 - adjustment.get_value() + 0.5) * term.get_char_height() + 4
+    check("Ctrl+Shift+Up scrolls to the previous prompt", term.top_row() == seq.start_row,
+          f"{term.top_row()} vs {seq.start_row}")
+    y = (seq.start_row + 3 - term.top_row() + 0.5) * term.get_char_height() + 4
     menu = term.context_menu_at(10, y)
     check("right-click on a command offers Copy Output", "Copy Output" in menu_labels(menu),
           str(menu_labels(menu)))
