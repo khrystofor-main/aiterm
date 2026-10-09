@@ -160,9 +160,35 @@ def steps(app):
           shortcuts & Adw.TabViewShortcuts.CONTROL_PAGE_DOWN and shortcuts & Adw.TabViewShortcuts.ALT_DIGITS
           and not shortcuts & Adw.TabViewShortcuts.CONTROL_HOME)
 
+    check("Ctrl+Shift+F is caught before VTE",
+          Gtk.ShortcutTrigger.parse_string("<Control><Shift>f").to_string() in win_keys)
     check("Ctrl+plus/minus/0 are caught before VTE",
           {"<Control>plus|<Control>equal|<Control>KP_Add", "<Control>minus|<Control>KP_Subtract",
            "<Control>0|<Control>KP_0"} <= set(win_keys))
+    term.feed_child(b"printf 'needle-%s\\n' 1 2 3\n")
+    wait_for(lambda: "needle-3" in screen_text(term))
+    win.activate_action("win.find")
+    search = win.search
+    check("Ctrl+Shift+F opens the search bar", search.get_search_mode())
+    selected = lambda: term.get_text_selected(Vte.Format.TEXT) or ""
+    search.entry.set_text("NEEDLE-3")
+    search.apply()  # search-changed is delayed while typing; apply now
+    check("search finds the newest match, ignoring case", selected() == "needle-3", repr(selected()))
+    search.regex.set_active(True)
+    search.entry.set_text("needle-[0-9]")
+    search.apply()
+    check("regex search finds the newest match", selected() == "needle-3", repr(selected()))
+    search.find(older=True)
+    check("Enter goes to an older match", selected() == "needle-2", repr(selected()))
+    search.find(older=False)
+    check("Shift+Enter goes to a newer match", selected() == "needle-3", repr(selected()))
+    search.entry.set_text("needle-(")
+    search.apply()
+    check("a broken regex marks the entry", search.entry.has_css_class("error"))
+    search.regex.set_active(False)
+    search.set_search_mode(False)
+    check("closing the search clears it", term.search_get_regex() is None)
+
     win.activate_action("win.zoom-in")
     win.activate_action("win.zoom-in")
     check("zoom in scales the font", term.get_font_scale() == 1.21, f"{term.get_font_scale()}")

@@ -2,6 +2,7 @@
 
 from gi.repository import Adw, Gio, Gtk
 
+from aiterm.search import SearchBar
 from aiterm.shortcuts import add_capture_shortcuts
 from aiterm.terminal import Terminal
 
@@ -13,6 +14,7 @@ SHORTCUTS = {
     "win.new-tab": "<Control><Shift>t",
     "win.close-tab": "<Control><Shift>w",
     "app.new-window": "<Control><Shift>n",
+    "win.find": "<Control><Shift>f",
     "win.zoom-in": "<Control>plus|<Control>equal|<Control>KP_Add",
     "win.zoom-out": "<Control>minus|<Control>KP_Subtract",
     "win.zoom-reset": "<Control>0|<Control>KP_0",
@@ -76,11 +78,14 @@ class Window(Adw.ApplicationWindow):
         toolbar = Adw.ToolbarView(content=self.tabs)
         toolbar.add_top_bar(header)
         toolbar.add_top_bar(tab_bar)
+        self.search = SearchBar(self.current_terminal)
+        toolbar.add_top_bar(self.search)
         self.set_content(toolbar)
 
         actions = {
             "new-tab": self.new_tab,
             "close-tab": self.close_tab,
+            "find": lambda: self.search.open(),
             "zoom-in": lambda: self.set_zoom(self.zoom * ZOOM_STEP),
             "zoom-out": lambda: self.set_zoom(self.zoom / ZOOM_STEP),
             "zoom-reset": lambda: self.set_zoom(1.0),
@@ -141,6 +146,9 @@ class Window(Adw.ApplicationWindow):
 
     def _on_tab_selected(self):
         self._sync_title()
+        if self.search.get_search_mode():
+            self.search.apply()
+            return  # keep typing in the search entry
         terminal = self.current_terminal()
         if terminal:
             terminal.grab_focus()
