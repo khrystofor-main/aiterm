@@ -277,7 +277,17 @@ def steps(app):
     wait_for(lambda: "$ " in screen_text(other_term))
     check("new window starts in the current tab's folder",
           wait_for(lambda: other_term.current_directory() == "/tmp"), f"{other_term.current_directory()!r}")
+    other.set_default_size(700, 400)
     other.close()
+    wait_for(lambda: len(app.get_windows()) == 1)
+    check("a closed window remembers its size",
+          (settings.window_width, settings.window_height) == (700, 400),
+          f"{settings.window_width}x{settings.window_height}")
+    app.activate_action("new-window", None)
+    third = app.get_active_window()
+    check("the next window opens at that size", third.get_default_size() == (700, 400),
+          f"{third.get_default_size()}")
+    third.close()
     wait_for(lambda: len(app.get_windows()) == 1)
     win.present()
     wait_for(lambda: app.get_active_window() is win, 2)

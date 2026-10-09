@@ -3,6 +3,7 @@
 from gi.repository import Adw, Gio, Gtk
 
 from aiterm.search import SearchBar
+from aiterm.settings import Settings
 from aiterm.shortcuts import add_capture_shortcuts
 from aiterm.terminal import Terminal
 
@@ -67,7 +68,12 @@ def main_menu():
 
 class Window(Adw.ApplicationWindow):
     def __init__(self, cwd=None, **kwargs):
-        super().__init__(default_width=960, default_height=600, title=APP_NAME, **kwargs)
+        # Opens at the size of the last window closed
+        settings = Settings.get()
+        super().__init__(
+            default_width=settings.window_width, default_height=settings.window_height,
+            maximized=settings.window_maximized, title=APP_NAME, **kwargs,
+        )
 
         self.header_title = Adw.WindowTitle(title=APP_NAME)
         header = Adw.HeaderBar(title_widget=self.header_title)
@@ -188,6 +194,7 @@ class Window(Adw.ApplicationWindow):
 
     def _on_close_request(self):
         """Asks before closing a window with programs still running in it."""
+        self._save_size()
         if self._closing_confirmed:
             return False
         running = [p for p in (t.running_program() for t in self.terminals()) if p]
@@ -200,6 +207,14 @@ class Window(Adw.ApplicationWindow):
         )
         dialog.present(self)
         return True  # keep the window open for now
+
+    def _save_size(self):
+        settings = Settings.get()
+        settings.window_maximized = self.is_maximized()
+        if not self.is_maximized():
+            # GTK keeps the default size in step with the size the user sets
+            width, height = self.get_default_size()
+            settings.window_width, settings.window_height = width, height
 
     def _confirm_close_window(self, confirmed):
         if confirmed:
