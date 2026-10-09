@@ -180,6 +180,16 @@ def steps(app):
     check("select all + copy puts the screen on the clipboard", copied and "aiterm-42" in copied,
           f"clipboard: {copied!r}"[:200])
 
+    os.makedirs(os.path.join(CONFIG_DIR, "with space"), exist_ok=True)
+    dropped = [Gio.File.new_for_path(os.path.join(CONFIG_DIR, "with space")),
+               Gio.File.new_for_path("/tmp/it's")]
+    term.feed_child(b"printf '<%s>' ")
+    term.paste_files(dropped)
+    term.feed_child(b"\n")
+    expected = f"<{CONFIG_DIR}/with space></tmp/it's>"
+    check("dropped files are typed as quoted paths", wait_for(lambda: expected in screen_text(term)),
+          screen_text(term)[-200:])
+
     term.get_clipboard().set("echo pasted-$((40+2))")
     term.activate_action("term.paste")
     # Paste reads the clipboard asynchronously; press Enter once it is typed
