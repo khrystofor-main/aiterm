@@ -4,13 +4,16 @@ look and the user's preferences."""
 import itertools
 import os
 import shlex
-import time
 
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango, Vte
 
+from aiterm.commands import CommandLog
 from aiterm.palettes import PALETTES
 from aiterm.settings import Settings
 from aiterm.shortcuts import add_capture_shortcuts
+
+# Space around the text, set through CSS by the application
+PADDING_Y, PADDING_X = 4, 8
 
 CURSOR_SHAPES = {
     "block": Vte.CursorShape.BLOCK,
@@ -23,6 +26,8 @@ SHORTCUTS = {
     "copy": "<Control><Shift>c",
     "paste": "<Control><Shift>v",
     "select-all": "<Control><Shift>a",
+    "previous-prompt": "<Control><Shift>Up",
+    "next-prompt": "<Control><Shift>Down",
 }
 INTERFACE_SCHEMA = "org.gnome.desktop.interface"
 
@@ -38,8 +43,19 @@ def _rgba(spec):
     return color
 
 
+# Loaded instead of ~/.bashrc (it loads that itself), see the file
+BASH_INTEGRATION = os.path.join(os.path.dirname(__file__), "shell", "integration.bash")
+
+
 def user_shell():
     return os.environ.get("SHELL") or Vte.get_user_shell() or "/bin/bash"
+
+
+def shell_command():
+    shell = user_shell()
+    if os.path.basename(shell) == "bash":
+        return [shell, "--rcfile", BASH_INTEGRATION]
+    return [shell]
 
 
 class Terminal(Vte.Terminal):
@@ -48,7 +64,7 @@ class Terminal(Vte.Terminal):
     __gsignals__ = {
         "title-changed": (GObject.SignalFlags.RUN_FIRST, None, (str,)),
         "exited": (GObject.SignalFlags.RUN_FIRST, None, ()),
-        # exit code, seconds; needs the shell integration in Ubuntu's bash
+        # exit code, seconds; details in command_log.commands[-1]
         "command-finished": (GObject.SignalFlags.RUN_FIRST, None, (int, float)),
     }
     _serials = itertools.count(1)
@@ -81,7 +97,8 @@ class Terminal(Vte.Terminal):
         else:
             self.connect("window-title-changed", self._on_title)
         self.connect("child-exited", self._on_child_exited)
-        self._watch_commands()
+        self.command_log = CommandLog(
+            self, lambda c: self.emit("command-finished", c.exit_code, c.seconds))
         self._add_clipboard_actions()
         self._add_links()
         self._add_file_drop()
@@ -108,6 +125,8 @@ class Terminal(Vte.Terminal):
             "copy": lambda *_: self.copy_clipboard_format(Vte.Format.TEXT),
             "paste": lambda *_: self.paste_clipboard(),
             "select-all": lambda *_: self.select_all(),
+            "previous-prompt": lambda *_: self.scroll_to_prompt(older=True),
+            "next-prompt": lambda *_: self.scroll_to_prompt(older=False),
         }
         for name, callback in actions.items():
             action = Gio.SimpleAction.new(name, None)
@@ -141,9 +160,11 @@ class Terminal(Vte.Terminal):
         self.add_controller(click)
 
         self._menu_link = None
+        self._menu_command = None
         for name, callback in {
             "open-link": lambda *_: self.open_link(self._menu_link),
             "copy-link": lambda *_: self.get_clipboard().set(self._menu_link),
+            "copy-output": lambda *_: self.get_clipboard().set(self._menu_command.output),
         }.items():
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", callback)
@@ -151,43 +172,6 @@ class Terminal(Vte.Terminal):
 
         self.set_context_menu_model(self.context_menu_at(None, None))
         self.connect("setup-context-menu", self._on_setup_context_menu)
-
-    def _watch_commands(self):
-        """Times each command with the shell integration in Ubuntu's bash
-        (/etc/profile.d/vte-2.91.sh): it signals vte.shell.preexec when a
-        command starts, then sets vte.shell.postexec to the exit code and
-        signals vte.shell.precmd when the prompt comes back.
-
-        VTE reports these in batches, in no particular order, so they are
-        collected and looked at together once the batch is over. A command
-        that starts and ends within one batch was short and is not reported.
-        The exit code is only readable during its own signal, so it is kept."""
-        self._command_started = None
-        self._shell_events = set()
-        self._exit_code = 0
-        for prop in (Vte.TERMPROP_SHELL_PREEXEC, Vte.TERMPROP_SHELL_PRECMD, Vte.TERMPROP_SHELL_POSTEXEC):
-            self.connect(f"termprop-changed::{prop}", self._on_shell_event)
-
-    def _on_shell_event(self, _terminal, name):
-        if name == Vte.TERMPROP_SHELL_POSTEXEC:
-            valid, code = self.get_termprop_uint(name)
-            self._exit_code = code if valid else 0
-            return
-        if not self._shell_events:
-            GLib.idle_add(self._process_shell_events)
-        self._shell_events.add(name)
-
-    def _process_shell_events(self):
-        started = Vte.TERMPROP_SHELL_PREEXEC in self._shell_events
-        finished = Vte.TERMPROP_SHELL_PRECMD in self._shell_events
-        self._shell_events = set()
-        if finished and self._command_started is not None:
-            seconds = time.monotonic() - self._command_started
-            self._command_started = None
-            self.emit("command-finished", self._exit_code, seconds)
-        elif started and not finished:
-            self._command_started = time.monotonic()
-        return GLib.SOURCE_REMOVE
 
     def _add_file_drop(self):
         """Dropping files (from Files, a browser download bar…) types their
@@ -212,15 +196,34 @@ class Terminal(Vte.Terminal):
         if uri:
             Gtk.UriLauncher.new(uri).launch(self.get_root(), None, None, None)
 
+    def scroll_to_prompt(self, older):
+        """Scrolls the previous / next prompt to the top of the view."""
+        adjustment = self.get_vadjustment()
+        top = adjustment.get_value()
+        rows = self.command_log.prompt_rows
+        targets = [r for r in rows if r < top] if older else [r for r in rows if r > top]
+        if targets:
+            adjustment.set_value(max(targets) if older else min(targets))
+
+    def row_at(self, y):
+        """The terminal row (counted from the start of the scrollback) at widget y."""
+        return int(self.get_vadjustment().get_value() + (y - PADDING_Y) // self.get_char_height())
+
     def context_menu_at(self, x, y):
-        """The right-click menu, with link items when (x, y) is on a link."""
+        """The right-click menu, with link items when (x, y) is on a link and
+        Copy Output when it is on a command."""
         self._menu_link = self.link_at(x, y) if x is not None else None
+        self._menu_command = self.command_log.command_at_row(self.row_at(y)) if y is not None else None
         menu = Gio.Menu()
         if self._menu_link:
             link = Gio.Menu()
             link.append("Open Link", "term.open-link")
             link.append("Copy Link", "term.copy-link")
             menu.append_section(None, link)
+        if self._menu_command and self._menu_command.output:
+            command = Gio.Menu()
+            command.append("Copy Output", "term.copy-output")
+            menu.append_section(None, command)
         edit = Gio.Menu()
         edit.append("Copy", "term.copy")
         edit.append("Paste", "term.paste")
@@ -281,11 +284,10 @@ class Terminal(Vte.Terminal):
         return None
 
     def _spawn(self, cwd):
-        shell = user_shell()
         self.spawn_async(
             Vte.PtyFlags.DEFAULT,
             cwd,
-            [shell],
+            shell_command(),
             None,  # inherit our environment; VTE adds TERM and friends
             GLib.SpawnFlags.DEFAULT,
             None, None,  # child setup

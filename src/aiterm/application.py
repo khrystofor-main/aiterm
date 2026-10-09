@@ -14,7 +14,7 @@ from aiterm.preferences import PreferencesDialog  # noqa: E402
 from aiterm.window import Window  # noqa: E402
 
 # Keeps text off the window edges
-CSS = "vte-terminal { padding: 4px 8px; }"
+CSS = f"vte-terminal {{ padding: {terminal.PADDING_Y}px {terminal.PADDING_X}px; }}"
 
 # The Keyboard Shortcuts dialog: (section, [(title, action name or accel)]).
 # Actions show the keys registered for them; Adw.TabView's own keys are listed
@@ -25,6 +25,8 @@ SHORTCUTS_HELP = [
         ("Paste", "term.paste"),
         ("Select All", "term.select-all"),
         ("Find", "win.find"),
+        ("Previous Prompt", "term.previous-prompt"),
+        ("Next Prompt", "term.next-prompt"),
     ]),
     ("Tabs", [
         ("New Tab", "win.new-tab"),

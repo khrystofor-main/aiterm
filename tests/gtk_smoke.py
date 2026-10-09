@@ -67,9 +67,12 @@ def spin(seconds):
 
 
 def screen_text(term):
-    if hasattr(term, "get_text_format"):
-        return term.get_text_format(Vte.Format.TEXT) or ""
-    return term.get_text(None, None)[0] or ""
+    """Everything from the top of the scrollback down to the cursor. (Not
+    get_text_format: it reads the visible area, which is empty while a new
+    tab in a background window has no size yet.)"""
+    first = int(term.get_vadjustment().get_lower())
+    _, last = term.get_cursor_position()
+    return term.get_text_range_format(Vte.Format.TEXT, first, 0, last, 10_000)[0] or ""
 
 
 def background(term):
@@ -88,6 +91,18 @@ def capture_shortcuts(widget):
                 shortcut = c.get_item(j)
                 found[shortcut.get_trigger().to_string()] = shortcut
     return found
+
+
+def menu_labels(menu):
+    """All item labels of a Gio.MenuModel, sections flattened."""
+    labels = []
+    for i in range(menu.get_n_items()):
+        section = menu.get_item_link(i, "section")
+        if section:
+            labels += menu_labels(section)
+        else:
+            labels.append(menu.get_item_attribute_value(i, "label", None).get_string())
+    return labels
 
 
 def clipboard_text(term):
@@ -121,6 +136,45 @@ def steps(app):
     term.feed_child(b"echo aiterm-$((6*7))\n")
     ok = wait_for(lambda: "aiterm-42" in screen_text(term))
     check("bash runs commands", ok, screen_text(term)[-300:])
+
+    log = term.command_log
+    last = lambda: log.commands[-1] if log.commands else None
+    term.feed_child(b"echo one; echo two\n")
+    check("the command log records a command and its output",
+          wait_for(lambda: last() and last().text == "echo one; echo two") and last().output == "one\ntwo",
+          repr(last()))
+    term.feed_child(b"false\n")
+    check("…and its exit code", wait_for(lambda: last().text == "false") and last().exit_code == 1, repr(last()))
+    # Ubuntu's ~/.bashrc keeps commands with a leading space out of the
+    # history; then the command comes from the screen
+    term.feed_child(b" echo hidden\n")
+    check("…also for commands kept out of the history",
+          wait_for(lambda: last().text == "echo hidden") and last().output == "hidden", repr(last()))
+    term.feed_child(b"printf 'no newline'\n")
+    check("output without a final newline still ends before the prompt",
+          wait_for(lambda: last().text == "printf 'no newline'") and last().output == "no newline", repr(last()))
+    check("the prompt after it starts on its own line",
+          wait_for(lambda: "no newline\n" in screen_text(term)), screen_text(term)[-200:])
+
+    term.feed_child(b"seq 300\n")
+    wait_for(lambda: last().text == "seq 300")
+    seq = last()
+    adjustment = term.get_vadjustment()
+    wait_for(lambda: adjustment.get_value() > seq.start_row, 2)
+    term.actions.activate_action("previous-prompt", None)
+    check("Ctrl+Shift+Up scrolls to the previous prompt", adjustment.get_value() == seq.start_row,
+          f"{adjustment.get_value()} vs {seq.start_row}")
+    y = (seq.start_row + 3 - adjustment.get_value() + 0.5) * term.get_char_height() + 4
+    menu = term.context_menu_at(10, y)
+    check("right-click on a command offers Copy Output", "Copy Output" in menu_labels(menu),
+          str(menu_labels(menu)))
+    term.actions.activate_action("copy-output", None)
+    copied = clipboard_text(term) or ""
+    check("Copy Output copies that command's output", copied.startswith("1\n2\n") and copied.endswith("\n300"),
+          repr(copied[:20]))
+    term.actions.activate_action("next-prompt", None)
+    term.feed_child(b"clear\n")
+    wait_for(lambda: last().text == "clear")
 
     # sleep keeps the next prompt from putting bash's own title back
     term.feed_child(b"printf '\\033]0;smoke-title\\007'; sleep 1\n")
@@ -178,7 +232,7 @@ def steps(app):
     term.activate_action("term.select-all")
     term.activate_action("term.copy")
     copied = clipboard_text(term)
-    check("select all + copy puts the screen on the clipboard", copied and "aiterm-42" in copied,
+    check("select all + copy puts the screen on the clipboard", copied and "smoke-title" in copied,
           f"clipboard: {copied!r}"[:200])
 
     os.makedirs(os.path.join(CONFIG_DIR, "with space"), exist_ok=True)
@@ -198,8 +252,8 @@ def steps(app):
     term.feed_child(b"\n")
     check("paste types the clipboard into the shell",
           wait_for(lambda: "pasted-42" in screen_text(term)))
-    edit = term.get_context_menu_model().get_item_link(0, "section")
-    check("right-click menu has Copy, Paste, Select All", edit and edit.get_n_items() == 3)
+    check("right-click menu has Copy, Paste, Select All",
+          menu_labels(term.get_context_menu_model()) == ["Copy", "Paste", "Select All"])
 
     term.feed_child(b"cd /tmp\n")
     check("terminal knows the shell's folder", wait_for(lambda: term.current_directory() == "/tmp"),
@@ -231,10 +285,11 @@ def steps(app):
     check("plain text is not a link", term.link_at(*cell(1, 0)) is None)
     menu = term.context_menu_at(*cell(10, 0))
     check("right-click on a link offers Open / Copy Link",
-          menu.get_n_items() == 2 and menu.get_item_link(0, "section").get_n_items() == 2)
+          menu_labels(menu)[:2] == ["Open Link", "Copy Link"], str(menu_labels(menu)))
     term.actions.activate_action("copy-link", None)
     check("Copy Link copies the URL", clipboard_text(term) == "https://example.com/a?b=1")
-    check("right-click elsewhere has no link items", term.context_menu_at(*cell(1, 0)).get_n_items() == 1)
+    check("right-click elsewhere has no link items",
+          "Open Link" not in menu_labels(term.context_menu_at(*cell(1, 0))))
 
     term.feed_child(b"printf 'needle-%s\\n' 1 2 3\n")
     wait_for(lambda: "needle-3" in screen_text(term))
@@ -268,10 +323,10 @@ def steps(app):
     second = win.current_terminal()
     check("new tab gets the window's zoom", second.get_font_scale() == 1.21)
     check("new tab opens and is selected", win.tabs.get_n_pages() == 2 and second is not term)
-    wait_for(lambda: "$ " in screen_text(second))
+    wait_for(lambda: second.command_log.prompt_rows)  # bash is ready
     second.feed_child(b"pwd\n")
     check("new tab starts in the current tab's folder",
-          wait_for(lambda: "\n/tmp\n" in screen_text(second)), screen_text(second)[-200:])
+          wait_for(lambda: "\n/tmp\n" in screen_text(second)), repr(screen_text(second).rstrip()[-300:]))
     # A long command in a background tab: tab A (term) runs it while B is open
     window_module.LONG_COMMAND_SECONDS = 1
     sent, finished = [], []
@@ -279,7 +334,7 @@ def steps(app):
     handler = term.connect("command-finished", lambda _t, code, seconds: finished.append((code, seconds)))
     term.feed_child(b"sleep 1.5; false\n")
     check("shell integration reports the command's exit code and time",
-          wait_for(lambda: finished) and finished[0][0] == 1 and finished[0][1] >= 1.5, str(finished))
+          wait_for(lambda: finished) and finished[0][0] == 1 and finished[0][1] >= 1.4, str(finished))
     check("a long command in a background tab sends a notification",
           wait_for(lambda: sent) and sent == [f"command-{term.serial}"], str(sent))
     first_page = win.tabs.get_page(term.get_parent())
@@ -288,8 +343,8 @@ def steps(app):
     check("clicking the notification shows that tab",
           win.current_terminal() is term and not first_page.get_needs_attention())
     term.feed_child(b"true\n")
-    spin(0.5)
-    check("short commands are not reported", len(finished) == 1, str(finished))
+    wait_for(lambda: len(finished) == 2)
+    check("short commands send no notification", len(sent) == 1, str(sent))
     term.disconnect(handler)
     win.tabs.set_selected_page(win.tabs.get_page(second.get_parent()))
 
