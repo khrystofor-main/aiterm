@@ -1,56 +1,13 @@
 #!/usr/bin/env bash
-# aiterm-left — shows the agent what is in the user's terminal (left pane).
-#   aiterm-left        the last command and its output
-#   aiterm-left N      the last N commands with their output
+# aiterm-left — shows the agent what is in the user's terminal.
+#   aiterm-left        the last command, its output and exit code
+#   aiterm-left N      the last N commands
 #   aiterm-left all    the whole terminal, including scrollback
 #
-# The first line is always the terminal's current folder.
-# Commands are split on the bash prompt "user@host:path$ " (default Ubuntu PS1).
+# The first line is always the terminal's current folder. Works for the agent
+# started by Aiterm (AITERM_WINDOW is set): it asks the app over D-Bus
+# (src/aiterm/tools.py, src/aiterm/dbus_api.py).
 set -euo pipefail
 
-# Started by the GTK app (AITERM_WINDOW): talk to it over D-Bus instead of
-# tmux, same arguments and exit codes (src/aiterm/tools.py)
-if [ -n "${AITERM_WINDOW:-}" ]; then
-  ROOT=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
-  PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m aiterm.tools left "$@"
-fi
-
-if [ -z "${AITERM_LEFT_PANE:-}" ]; then
-  echo "agy is not running inside aiterm: there is no user terminal. Ask the user to paste the output into the chat." >&2
-  exit 1
-fi
-
-t() { tmux ${AITERM_SOCKET:+-L "$AITERM_SOCKET"} "$@"; }
-
-mode=${1:-1}
-if [ "$mode" != all ] && ! [[ $mode =~ ^[1-9][0-9]*$ ]]; then
-  echo "Usage: aiterm-left [N|all]" >&2
-  exit 2
-fi
-
-echo "[terminal folder: $(t display-message -p -t "$AITERM_LEFT_PANE" '#{pane_current_path}')]"
-
-# The whole pane history, not only the visible screen
-t capture-pane -p -J -t "$AITERM_LEFT_PANE" -S - -E - |
-awk -v mode="$mode" '
-  { line[NR] = $0 }
-  END {
-    prompt = "^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+:[^$#]*[$#]( |$)"
-    last = NR
-    # Drop the unused part of the screen at the bottom
-    while (last > 0 && line[last] ~ /^[[:space:]]*$/) last--
-    if (mode == "all") { for (i = 1; i <= last; i++) print line[i]; exit }
-
-    # The current empty prompt (waiting for input) is noise
-    if (last > 0 && match(line[last], prompt) && substr(line[last], RLENGTH + 1) ~ /^[[:space:]]*$/) last--
-
-    # Walk up to the start of the N-th command from the end
-    found = 0; start = 0
-    for (i = last; i >= 1; i--)
-      if (line[i] ~ prompt) { found++; start = i; if (found == mode) break }
-
-    # No prompt found (custom PS1, full-screen program): fall back to the last 200 lines
-    if (!found) { start = last - 199; if (start < 1) start = 1 }
-
-    for (i = start; i <= last; i++) print line[i]
-  }'
+ROOT=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
+PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m aiterm.tools left "$@"

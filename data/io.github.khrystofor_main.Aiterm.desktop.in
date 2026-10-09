@@ -2,8 +2,8 @@
 Type=Application
 Name=Aiterm
 GenericName=Terminal
-Comment=GTK 4 terminal, the base for the aiterm AI terminal
-Exec=@BIN@/aiterm-gtk
+Comment=Terminal with the agy AI agent at your side
+Exec=@BIN@/aiterm
 Icon=utilities-terminal
 Terminal=false
 StartupNotify=true
