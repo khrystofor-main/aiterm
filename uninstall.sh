@@ -14,7 +14,8 @@ for f in "$ROOT"/bin/*; do
     rm "$target"
   fi
 done
-rm -f "$HOME/.local/share/applications/aiterm.desktop"
+rm -f "$HOME/.local/share/applications/aiterm.desktop" \
+  "$HOME/.local/share/applications/io.github.khrystofor_main.Aiterm.desktop"
 
 if [ -f "$RULES" ]; then
   tmp=$(mktemp)
