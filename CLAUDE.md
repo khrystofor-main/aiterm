@@ -14,6 +14,7 @@ AI terminal for Ubuntu: the user's shell on the left, the `agy` agent (Antigravi
 - `bin/aiterm-run` — the agent runs a command in the user's terminal and gets the output.
 - `rules/aiterm.md` — agent rules; `install.sh` puts them into `~/.gemini/GEMINI.md` between `<!-- aiterm:begin -->` / `<!-- aiterm:end -->`.
 - `bin/aiterm-gtk`, `src/aiterm/` — the native GTK 4 app (v0.2, Python + PyGObject, libadwaita, VTE 3.91). Plan: `docs/v0.2-plan.md`.
+- `src/aiterm/commands.py` + `src/aiterm/shell/integration.bash` — the command log (text, output, exit code per command). The app starts bash with `--rcfile` on that file; it loads `/etc/bash.bashrc` and `~/.bashrc` itself.
 - `data/*.desktop.in` — the app's launcher; `install.sh` fills in `@BIN@`.
 - `tests/run.sh` — integration tests on a throwaway tmux server, then `tests/gtk_smoke.py` (real window, skipped without a display).
 
