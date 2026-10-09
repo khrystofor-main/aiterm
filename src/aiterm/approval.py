@@ -1,6 +1,9 @@
 """Asking the user before the agent runs a command: a bar above the
 terminal with the command and Run / Don't Run.
 
+The bar floats over the terminal instead of taking space from it: a resize
+would make bash redraw its prompt just as the command is typed.
+
 The terminal API (dbus_api.py) calls ask() from RunCommand when the
 "Ask Before the Agent Runs a Command" preference is on, so the check lives
 in the app, not in the agent's own permission settings: whatever the agent
@@ -35,19 +38,29 @@ class ApprovalBar(Gtk.Revealer):
         box = Gtk.Box(spacing=12, margin_start=12, margin_end=12, margin_top=8, margin_bottom=8)
         for widget in (Gtk.Image(icon_name="utilities-terminal-symbolic"), text, self.skip_button, self.run_button):
             box.append(widget)
-        frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        frame.add_css_class("background")
+        # Floats over the terminal (window.py), away from the cursor
+        frame = Gtk.Box(margin_start=8, margin_end=8, margin_top=8, margin_bottom=8)
+        frame.add_css_class("card")
+        frame.add_css_class("approval")
         frame.append(box)
-        frame.append(Gtk.Separator())
         self.set_child(frame)
 
     @property
     def pending(self):
         return self._callback is not None
 
-    def ask(self, command, callback):
-        """Shows the command; calls callback(True) for Run, (False) for Don't Run."""
+    def ask(self, command, callback, terminal=None):
+        """Shows the command; calls callback(True) for Run, (False) for Don't Run.
+        With `terminal`, the bar goes to the half of it away from the cursor,
+        so the prompt where the command will appear stays in sight."""
         self._callback = callback
+        if terminal is not None:
+            _, row = terminal.get_cursor_position()
+            on_screen = row - terminal.get_vadjustment().get_value()
+            top = on_screen >= terminal.get_row_count() / 2
+            self.set_valign(Gtk.Align.START if top else Gtk.Align.END)
+            self.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN if top
+                                     else Gtk.RevealerTransitionType.SLIDE_UP)
         self.command.set_label(command)
         self.set_reveal_child(True)
 
@@ -59,3 +72,8 @@ class ApprovalBar(Gtk.Revealer):
 
     def focus(self):
         self.run_button.grab_focus()
+
+
+CSS = """
+.approval { background: alpha(@window_bg_color, 0.97); }
+"""
