@@ -10,7 +10,9 @@ in the app, not in the agent's own permission settings: whatever the agent
 is told or configured to do, nothing is typed until the user clicks Run.
 """
 
-from gi.repository import Gtk, Pango
+from gi.repository import GLib, Gtk, Pango
+
+from aiterm import animations
 
 
 class ApprovalBar(Gtk.Revealer):
@@ -56,16 +58,29 @@ class ApprovalBar(Gtk.Revealer):
         self._callback = callback
         if terminal is not None:
             _, row = terminal.get_cursor_position()
-            on_screen = row - terminal.get_vadjustment().get_value()
+            on_screen = row - terminal.top_row()
             top = on_screen >= terminal.get_row_count() / 2
             self.set_valign(Gtk.Align.START if top else Gtk.Align.END)
             self.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN if top
                                      else Gtk.RevealerTransitionType.SLIDE_UP)
         self.command.set_label(command)
+        self.set_transition_duration(animations.duration(self, "approval"))
+        # Run pulses while the agent waits (CSS below, timed by the preset)
+        if animations.Animations.get().effect("approval"):
+            self.run_button.add_css_class("approval-pulse")
         self.set_reveal_child(True)
+
+    def preview(self, command, seconds=2):
+        """Shows the bar for a moment, with nobody waiting (Preferences → Animations)."""
+        if self.pending:
+            return
+        self.ask(command, None)
+        GLib.timeout_add(seconds * 1000, lambda: (not self.pending and self.answer(False)) and False)
 
     def answer(self, run):
         callback, self._callback = self._callback, None
+        self.run_button.remove_css_class("approval-pulse")
+        self.set_transition_duration(animations.duration(self, "approval"))
         self.set_reveal_child(False)
         if callback:
             callback(run)
@@ -76,4 +91,15 @@ class ApprovalBar(Gtk.Revealer):
 
 CSS = """
 .approval { background: alpha(@window_bg_color, 0.97); }
+@keyframes approval-pulse {
+  0% { box-shadow: 0 0 0 0 alpha(@accent_bg_color, 0.6); }
+  70% { box-shadow: 0 0 0 7px alpha(@accent_bg_color, 0); }
+  100% { box-shadow: 0 0 0 0 alpha(@accent_bg_color, 0); }
+}
 """
+
+
+def animated_css(values):
+    """The parts of the CSS timed by the animation preset."""
+    pulse = values["effects"]["approval"]["pulse"]
+    return f".approval-pulse {{ animation: approval-pulse {pulse}ms ease-out infinite; }}\n"

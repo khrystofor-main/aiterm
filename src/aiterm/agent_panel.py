@@ -17,7 +17,9 @@ import shlex
 import shutil
 import subprocess
 
-from gi.repository import Adw, GLib, Gtk
+from gi.repository import Adw, GLib, Graphene, Gtk
+
+from aiterm import animations
 
 from aiterm.chat import AgentProcess, chat_command
 from aiterm.chat_view import ChatView
@@ -63,8 +65,44 @@ class AgentPanel(Adw.Bin):
         self.agent_cwd = None
         self.resume = None
         self.last_chat = None  # the chat view to show again, with its messages
+        self._offset = 0.0  # how far it is pushed off to the right, 0..1 of its width
+        self._slides = 0  # counts slides, so an interrupted one does not finish
         handler = Settings.get().connect("notify::agent-view", lambda *_: self.restart())
         window.connect("destroy", lambda *_: self._on_window_destroyed(handler))
+
+    def slide(self, showing, done=None):
+        """Slides the panel in from the right or out to it, then calls done().
+        It keeps its width meanwhile, and the place it leaves shows the
+        terminal's background: the terminal resizes once, not on every frame
+        (each resize makes the shell redraw its prompt)."""
+        self._slides += 1
+        slide = self._slides
+
+        def frame(p):
+            self._offset = 1 - p if showing else p
+            self.queue_draw()
+
+        def finished():
+            if slide == self._slides:
+                self._offset = 0.0
+                self.queue_draw()
+                if done:
+                    done()
+        # The window: the panel itself is not shown yet when it slides in
+        animations.play(self.window, "panel", frame, finished)
+
+    def do_snapshot(self, snapshot):
+        if self._offset <= 0:
+            Adw.Bin.do_snapshot(self, snapshot)
+            return
+        terminal = self.window.current_terminal()
+        if terminal:
+            snapshot.append_color(terminal.get_color_background_for_draw(),
+                                  Graphene.Rect().init(0, 0, self.get_width(), self.get_height()))
+        snapshot.save()
+        snapshot.translate(Graphene.Point().init(self.get_width() * self._offset, 0))
+        Adw.Bin.do_snapshot(self, snapshot)
+        snapshot.restore()
 
     def start(self):
         """Starts the agent unless it is running."""

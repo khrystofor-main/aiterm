@@ -2,6 +2,8 @@
 
 from gi.repository import Adw, GLib, Gtk, Vte
 
+from aiterm import animations
+
 # PCRE2 compile flags (VTE uses PCRE2; the constants are not in the GIR)
 PCRE2_CASELESS = 0x00000008
 PCRE2_MULTILINE = 0x00000400
@@ -46,6 +48,7 @@ class SearchBar(Gtk.SearchBar):
         self.connect("notify::search-mode-enabled", lambda *_: self._on_toggled())
 
     def open(self):
+        self._time_transition()
         self.set_search_mode(True)
         self.entry.grab_focus()
         self.entry.select_region(0, -1)
@@ -84,7 +87,14 @@ class SearchBar(Gtk.SearchBar):
             self.entry.add_css_class("error")
         return found
 
+    def _time_transition(self):
+        """The bar slides down in its revealer; the preset times it."""
+        revealer = self.get_first_child()
+        if isinstance(revealer, Gtk.Revealer):
+            revealer.set_transition_duration(animations.duration(self, "search"))
+
     def _on_toggled(self):
+        self._time_transition()  # for closing, too
         if self.get_search_mode():
             return
         # Closed (Escape or the close button): drop the highlight, back to typing

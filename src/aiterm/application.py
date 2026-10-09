@@ -10,6 +10,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
 from aiterm import APP_ID, VERSION  # noqa: E402
 from aiterm import approval, chat_view, terminal, window  # noqa: E402
+from aiterm.animations import Animations  # noqa: E402
 from aiterm.dbus_api import TerminalApi  # noqa: E402
 from aiterm.preferences import PreferencesDialog  # noqa: E402
 from aiterm.window import Window  # noqa: E402
@@ -64,6 +65,13 @@ class Application(Adw.Application):
         Gtk.StyleContext.add_provider_for_display(
             Gdk.Display.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
+        # CSS animations timed by the animation preset, reloaded when it changes
+        self.animated_css = Gtk.CssProvider()
+        Gtk.StyleContext.add_provider_for_display(
+            Gdk.Display.get_default(), self.animated_css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
+        Animations.get().connect("changed", lambda *_: self._load_animated_css())
+        self._load_animated_css()
         # Terminals and windows catch these keys themselves (see shortcuts.py);
         # registering them here only shows them next to the items in menus
         for name, accel in terminal.SHORTCUTS.items():
@@ -85,6 +93,10 @@ class Application(Adw.Application):
         show = Gio.SimpleAction.new("show-terminal", GLib.VariantType.new("(uu)"))
         show.connect("activate", lambda _action, target: self.show_terminal(*target.unpack()))
         self.add_action(show)
+
+    def _load_animated_css(self):
+        values = Animations.get().values()
+        self.animated_css.load_from_string(approval.animated_css(values))
 
     def do_dbus_register(self, connection, object_path):
         # The agent's tools reach the terminals through this (see dbus_api.py)
