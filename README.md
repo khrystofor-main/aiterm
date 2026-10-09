@@ -102,6 +102,8 @@ Also: Ctrl+click opens links, right-click on a command's output → **Copy Outpu
 
 A failed command's line shakes and keeps a `✗` with its exit code at the end; new output gets a stripe on the left that fades away, green or red once the command ends; palette and light/dark changes are animated; the agent panel and the find and approval bars slide in, and **Run** pulses while the agent waits. In the chat, messages fade in, the answer fades in as it streams, command blocks show a running bar, three dots pulse while the agent works, and a command the agent runs lights up its block and its output's stripe in one color. The text itself is never delayed, and the effects stay out of full-screen programs, ssh sessions, floods of output and background windows. Preferences → Animations turns them off (they follow GNOME's Reduce Animations until you choose), picks a preset (*Subtle*, *Expressive*) or makes your own: Duplicate one, then change its effects there or in its JSON file in `~/.config/aiterm/animations/`, which keeps only what differs from the built-in preset.
 
+![A failed command shakes and gets its ✗, output gets a fading stripe, the colors move to the light style](docs/animations.gif)
+
 Before each command the agent runs, a bar above your terminal shows it with **Run** and **Don't Run**. For fully hands-free use, turn off **Ask Before the Agent Runs a Command** in Preferences → Agent; the `sudo` guard keeps working.
 
 ## Tests

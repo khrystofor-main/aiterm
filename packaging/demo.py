@@ -3,9 +3,10 @@
 view, fixing a broken script. Frames are snapshots of the window (no screen
 recorder needed), put together with Pillow.
 
-    packaging/demo.py [out.gif]
+    tests/headless.sh python3 packaging/demo.py [out.gif]
 
-Needs a graphical session, a signed-in agy and python3-pil. agy runs with a
+Needs a signed-in agy and python3-pil; tests/headless.sh gives it a display
+that draws frames without a window on the desktop. agy runs with a
 temporary HOME (your login and the aiterm plugin only), like the evals. The
 shell is sandboxed like the evals' too, with a plain prompt.
 """
@@ -32,8 +33,9 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 gi.require_version("Vte", "3.91")
 from gi.repository import Adw, Gio, GLib, Graphene, Gtk  # noqa: E402
-from PIL import Image  # noqa: E402
+from PIL import Image, ImageChops  # noqa: E402
 
+from aiterm import animations  # noqa: E402
 from aiterm.application import Application  # noqa: E402
 from aiterm.settings import Settings  # noqa: E402
 from aiterm.terminal import BASH_INTEGRATION  # noqa: E402
@@ -90,6 +92,13 @@ def frame(window, ms):
         frames.append((image, ms))
 
 
+def burst(window, seconds, ms=40):
+    """Frames every `ms` for `seconds`: short enough to catch an animation."""
+    for _ in range(int(seconds * 1000 / ms)):
+        pause(ms / 1000)
+        frame(window, ms)
+
+
 def type_text(window, widget_feed, text, ms=60):
     for ch in text:
         widget_feed(ch)
@@ -111,6 +120,9 @@ def record(app):
     settings = Settings.get()
     settings.agent_view, settings.approve_agent_commands = "chat", True
     settings.agent_panel_width, settings.agent_panel_visible = 560, True
+    # The animations, whatever the display says about Reduce Animations or focus
+    settings.animations, settings.animations_hint_shown = "on", True
+    animations.window_active = lambda widget: True
     work = tempfile.mkdtemp(prefix="aiterm-demo-")
     home = os.path.join(work, "home")
     project = os.path.join(home, "project")
@@ -130,6 +142,7 @@ def record(app):
     window.set_default_size(WIDTH, HEIGHT)
     window.present()
     terminal = window.current_terminal()
+    terminal.effects.window_active = lambda: True
     wait_for(lambda: terminal.command_log._prompt is not None and window.get_width() > 0, 20)
     pause(1.5)
     frame(window, 800)
@@ -137,7 +150,7 @@ def record(app):
     type_text(window, lambda ch: terminal.feed_child(ch.encode()), "python3 server.py")
     terminal.feed_child(b"\n")
     wait_for(lambda: terminal.command_log.commands, 10)
-    pause(0.5)
+    burst(window, 0.6)  # the failed line shakes and gets its ✗
     frame(window, 1500)
 
     chat = window.agent_panel.chat
@@ -152,8 +165,10 @@ def record(app):
                 pause(0.5)
                 frame(window, 500)
             window.approval.answer(True)
+            burst(window, 0.8, 80)  # its block and its output light up
+        # The agent's turn takes a while: it plays about 3x faster in the GIF
         pause(0.5)
-        frame(window, 500)
+        frame(window, 160)
     pause(1)
     frame(window, 4000)
     chat.process.stop()
@@ -165,7 +180,19 @@ app = Application(application_id="io.github.khrystofor_main.Aiterm.Demo", flags=
 app.connect("activate", lambda app: GLib.idle_add(lambda: run(app) and False))
 app.run([])
 if frames:
-    images = [f[0].quantize(colors=128, method=Image.Quantize.MEDIANCUT) for f in frames]
+    # Frames that differ in a few pixels only (the cursor, the dots) are
+    # merged, and all share one palette: a GIF small enough for the README
+    merged = []
+    for image, ms in frames:
+        changed = ImageChops.difference(merged[-1][0], image).convert("L").point(
+            lambda v: 255 if v > 24 else 0) if merged else None
+        if changed is not None and changed.histogram()[255] < 40:
+            merged[-1] = (merged[-1][0], merged[-1][1] + ms)
+        else:
+            merged.append((image, ms))
+    frames = merged
+    palette = frames[len(frames) // 2][0].quantize(colors=96, method=Image.Quantize.MEDIANCUT)
+    images = [f[0].quantize(palette=palette, dither=Image.Dither.NONE) for f in frames]
     images[0].save(OUT, save_all=True, append_images=images[1:], duration=[f[1] for f in frames], loop=0,
                    optimize=True)
     print(f"{OUT}: {len(frames)} frames, {os.path.getsize(OUT) // 1024} KB")
