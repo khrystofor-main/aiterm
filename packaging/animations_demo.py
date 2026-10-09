@@ -6,11 +6,10 @@ of the animation; no agent involved.
 
     packaging/animations_demo.py [out.gif]
 
-Needs python3-pil and a display. Run it off-screen, so no window shows up on
+Needs python3-pil. Run it on an invisible display, so no window shows up on
 the desktop:
 
-    gtk4-broadwayd :7 &
-    GDK_BACKEND=broadway BROADWAY_DISPLAY=:7 packaging/animations_demo.py
+    tests/headless.sh packaging/animations_demo.py
 """
 
 import io
@@ -47,8 +46,8 @@ renderer = None
 
 
 def frame(window):
-    """The window's contents as an image. Drawn by our own renderer from the
-    widgets' snapshots, which works on any backend, Broadway included."""
+    """The window's contents as an image, drawn by our own renderer from the
+    widgets' snapshots."""
     global renderer
     if not window.get_width():
         return None  # not laid out yet
@@ -122,6 +121,7 @@ def demo(app):
     Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.FORCE_DARK)
     Gtk.Settings.get_default().set_property("gtk-decoration-layout", "")  # no window buttons
     Settings.get().agent_panel_visible = False
+    Settings.get().animations = "on"  # whatever the display says about Reduce Animations
     for w in app.get_windows():
         w.destroy()
     window = Window(application=app)

@@ -3,6 +3,7 @@ changes apply to open terminals at once and are saved right away."""
 
 from gi.repository import Adw, GObject, Gtk, Pango
 
+from aiterm.animations_page import AnimationsPage
 from aiterm.palettes import PALETTES
 from aiterm.settings import AGENT_VIEWS, CURSOR_SHAPES, Settings
 from aiterm.terminal import Terminal
@@ -46,18 +47,9 @@ class PreferencesDialog(Adw.PreferencesDialog):
                                GObject.BindingFlags.SYNC_CREATE | GObject.BindingFlags.INVERT_BOOLEAN)
         text.add(font_row)
 
-        motion = Adw.PreferencesGroup(title="Animations")
-        self.animations_row = Adw.SwitchRow(
-            title="Animations",
-            subtitle="A failed command's line shakes; new output gets a fading stripe on the left",
-        )
-        settings.bind_property("animations", self.animations_row, "active", BOTH_WAYS)
-        motion.add(self.animations_row)
-
         appearance = Adw.PreferencesPage(title="Appearance", icon_name="applications-graphics-symbolic")
         appearance.add(colors)
         appearance.add(text)
-        appearance.add(motion)
         self.add(appearance)
 
         # Behavior
@@ -115,6 +107,9 @@ class PreferencesDialog(Adw.PreferencesDialog):
         agent.add(panel)
         agent.add(commands)
         self.add(agent)
+
+        self.animations_page = AnimationsPage()
+        self.add(self.animations_page)
 
 
 def combo_row(title, values, settings, key, labels=None):
