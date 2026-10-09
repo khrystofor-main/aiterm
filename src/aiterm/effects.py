@@ -306,16 +306,15 @@ class TerminalEffects:
 
     def _alternate_screen(self):
         """Full-screen programs (vim, less, htop) draw on VTE's alternate
-        screen, which VTE does not report. It has its own rows: the command's
-        own line is not there any more."""
+        screen, which VTE does not report. It has rows of its own: the
+        command's line no longer starts with its prompt."""
         log = self.terminal.command_log
-        text = log.running_text
-        if not text or log.input_row is None:
+        prompt = (log.prompt_text or "").strip()
+        if not prompt or log.input_row is None:
             return False
         line, _ = self.terminal.get_text_range_format(
             Vte.Format.TEXT, log.input_row, 0, log.input_row, 10_000)
-        first_line = text.split("\n", 1)[0].strip()
-        return not line or first_line[:20] not in line
+        return not (line or "").lstrip().startswith(prompt)
 
     def _light_output(self, input_row, last, again=True):
         """A stripe on the rows after `input_row` (the command's own line) up

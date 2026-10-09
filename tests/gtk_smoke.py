@@ -319,14 +319,16 @@ def steps(app):
 
     old_background, old_palette = background(term), Settings.get().palette
     Settings.get().palette = "Solarized"
+    new = term._colors[1]  # Solarized's background in the current light/dark style
+    solarized = (round(new.red * 255), round(new.green * 255), round(new.blue * 255))
     check("a palette change is animated", fx.blend is not None and background(term) == old_background)
     now[0] += Animations.get().effect("theme")["duration"] / 2
     fx.prune()
-    check("…passing through the colors in between", background(term) not in (old_background, (0, 43, 54)),
+    check("…passing through the colors in between", background(term) not in (old_background, solarized),
           str(background(term)))
     now[0] += Animations.get().effect("theme")["duration"]
     fx.prune()
-    check("…and ends on the new palette", fx.blend is None and background(term) == (0, 43, 54),
+    check("…and ends on the new palette", fx.blend is None and background(term) == solarized,
           str(background(term)))
     Settings.get().palette = old_palette
     now[0] += 10_000
