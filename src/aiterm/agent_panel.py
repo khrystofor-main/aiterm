@@ -1,10 +1,11 @@
 """The side panel where the agent works: agy in its own terminal, next to
 the user's.
 
-agy gets AITERM_WINDOW, AITERM_BUS_NAME and AITERM_OBJECT_PATH, so its
-aiterm-left / aiterm-run reach this window's selected tab over D-Bus
-(dbus_api.py), and this checkout's bin/ comes first in its PATH, so the
-tools match the app. It starts the first time the panel opens.
+agy gets AITERM_WINDOW, AITERM_BUS_NAME and AITERM_OBJECT_PATH, so the MCP
+server it starts (aiterm-mcp, from the aiterm plugin) reaches this window's
+selected tab over D-Bus (dbus_api.py), and this checkout's bin/ comes first
+in its PATH, so the server matches the app. It starts the first time the
+panel opens.
 """
 
 import os

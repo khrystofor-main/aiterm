@@ -29,6 +29,32 @@ out=$(AITERM_WINDOW=1 AITERM_BUS_NAME=:1.no-such-app "$RUN" 'echo hi' 2>&1); cod
 check "aiterm-run with no app to talk to (code 1)" "1" "$code"
 check "…and says why" "Cannot reach the Aiterm window" "$out"
 
+echo "installer"
+# A throwaway HOME as an older version left it: rules in GEMINI.md, the old
+# permissions, a stand-in agy. Never the user's real ~/.gemini
+home=$(mktemp -d)
+mkdir -p "$home/.gemini/antigravity-cli" "$home/.local/bin"
+printf '#!/bin/sh\n' > "$home/.local/bin/agy"; chmod +x "$home/.local/bin/agy"
+printf '# Mine\n\n<!-- aiterm:begin -->\nold rules\n<!-- aiterm:end -->\n' > "$home/.gemini/GEMINI.md"
+echo '{"model": "m", "permissions": {"allow": ["command(aiterm-run)", "command(ls)"]}}' > "$home/.gemini/antigravity-cli/settings.json"
+out=$(HOME=$home PATH="$home/.local/bin:$PATH" "$ROOT/install.sh" 2>&1); code=$?
+check "install.sh succeeds" "0" "$code"
+check "…links the agy plugin" "$ROOT/agy-plugin" "$(readlink "$home/.gemini/config/plugins/aiterm")"
+check "…links the MCP server" "$ROOT/bin/aiterm-mcp" "$(readlink "$home/.local/bin/aiterm-mcp")"
+rules=$(cat "$home/.gemini/GEMINI.md")
+check "…moves the rules out of GEMINI.md, keeps the user's own" "[# Mine]" "[$rules]"
+perms=$(jq -c '[.model, .permissions.allow]' "$home/.gemini/antigravity-cli/settings.json")
+check "…allows the read-only tools, drops the old rules, keeps the user's" \
+  '["m",["command(ls)","mcp(aiterm_terminal/get_cwd)","mcp(aiterm_terminal/read_terminal)","mcp(aiterm_terminal/wait_for_command)"]]' "$perms"
+HOME=$home PATH="$home/.local/bin:$PATH" "$ROOT/install.sh" >/dev/null 2>&1
+check "running it again changes nothing" "$perms" "$(jq -c '[.model, .permissions.allow]' "$home/.gemini/antigravity-cli/settings.json")"
+out=$(HOME=$home PATH="$home/.local/bin:$PATH" "$ROOT/uninstall.sh" 2>&1); code=$?
+check "uninstall.sh succeeds" "0" "$code"
+left="plugins: $(ls -A "$home/.gemini/config/plugins" | tr '\n' ' ')| bin: $(ls -A "$home/.local/bin" | tr '\n' ' ')|"
+check "…removes the plugin and the commands" "plugins: | bin: agy |" "$left"
+check "…and the permissions it added" '["command(ls)"]' "$(jq -c .permissions.allow "$home/.gemini/antigravity-cli/settings.json")"
+rm -rf "$home"
+
 echo "MCP server"
 "$ROOT/tests/mcp_protocol.py"; code=$?
 if [ $code = 0 ]; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
