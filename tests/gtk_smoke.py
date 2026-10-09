@@ -32,6 +32,7 @@ except (ImportError, ValueError) as e:
     print(f"  skip GTK smoke test: {e}")
     sys.exit(SKIP)
 
+import aiterm.window as window_module  # noqa: E402
 from aiterm.application import Application  # noqa: E402
 from aiterm.palettes import PALETTES  # noqa: E402
 from aiterm.preferences import PreferencesDialog  # noqa: E402
@@ -271,6 +272,27 @@ def steps(app):
     second.feed_child(b"pwd\n")
     check("new tab starts in the current tab's folder",
           wait_for(lambda: "\n/tmp\n" in screen_text(second)), screen_text(second)[-200:])
+    # A long command in a background tab: tab A (term) runs it while B is open
+    window_module.LONG_COMMAND_SECONDS = 1
+    sent, finished = [], []
+    app.send_notification = lambda notification_id, notification: sent.append(notification_id)
+    handler = term.connect("command-finished", lambda _t, code, seconds: finished.append((code, seconds)))
+    term.feed_child(b"sleep 1.5; false\n")
+    check("shell integration reports the command's exit code and time",
+          wait_for(lambda: finished) and finished[0][0] == 1 and finished[0][1] >= 1.5, str(finished))
+    check("a long command in a background tab sends a notification",
+          wait_for(lambda: sent) and sent == [f"command-{term.serial}"], str(sent))
+    first_page = win.tabs.get_page(term.get_parent())
+    check("…and marks the tab", first_page.get_needs_attention())
+    app.activate_action("show-terminal", GLib.Variant("(uu)", (win.get_id(), term.serial)))
+    check("clicking the notification shows that tab",
+          win.current_terminal() is term and not first_page.get_needs_attention())
+    term.feed_child(b"true\n")
+    spin(0.5)
+    check("short commands are not reported", len(finished) == 1, str(finished))
+    term.disconnect(handler)
+    win.tabs.set_selected_page(win.tabs.get_page(second.get_parent()))
+
     win.activate_action("win.zoom-out")
     check("zoom applies to every tab", term.get_font_scale() == second.get_font_scale() == 1.1)
     win.activate_action("win.zoom-reset")

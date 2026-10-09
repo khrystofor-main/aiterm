@@ -68,10 +68,16 @@ class PreferencesDialog(Adw.PreferencesDialog):
         settings.bind_property("cursor-blink", blink, "active", BOTH_WAYS)
         cursor.add(blink)
 
-        sound = Adw.PreferencesGroup(title="Sound")
+        sound = Adw.PreferencesGroup(title="Sound and Notifications")
         bell = Adw.SwitchRow(title="Terminal Bell")
         settings.bind_property("audible-bell", bell, "active", BOTH_WAYS)
         sound.add(bell)
+        notify = Adw.SwitchRow(
+            title="Notify When a Long Command Finishes",
+            subtitle="For commands over 10 seconds in a tab or window you are not looking at",
+        )
+        settings.bind_property("notify-long-commands", notify, "active", BOTH_WAYS)
+        sound.add(notify)
 
         behavior = Adw.PreferencesPage(title="Behavior", icon_name="preferences-system-symbolic")
         for group in (scrolling, cursor, sound):

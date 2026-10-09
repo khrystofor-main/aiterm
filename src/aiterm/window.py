@@ -1,6 +1,6 @@
 """The main window: a header bar on top, terminal tabs below."""
 
-from gi.repository import Adw, Gio, Gtk
+from gi.repository import Adw, Gio, GLib, Gtk
 
 from aiterm.search import SearchBar
 from aiterm.settings import Settings
@@ -22,6 +22,9 @@ SHORTCUTS = {
     "win.zoom-reset": "<Control>0|<Control>KP_0",
 }
 
+# A command this long, finished out of sight, gets a desktop notification
+LONG_COMMAND_SECONDS = 10
+
 # Font zoom, for every tab of a window; new tabs get the window's zoom
 ZOOM_STEP = 1.1
 ZOOM_MIN, ZOOM_MAX = 0.5, 3.0
@@ -31,6 +34,14 @@ TAB_VIEW_SHORTCUTS = Adw.TabViewShortcuts.ALL_SHORTCUTS & ~(
     Adw.TabViewShortcuts.CONTROL_HOME | Adw.TabViewShortcuts.CONTROL_END
     | Adw.TabViewShortcuts.CONTROL_SHIFT_HOME | Adw.TabViewShortcuts.CONTROL_SHIFT_END
 )
+
+
+def format_duration(seconds):
+    minutes, seconds = divmod(round(seconds), 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours} h {minutes} min"
+    return f"{minutes} min {seconds} s" if minutes else f"{seconds} s"
 
 
 def confirm_dialog(heading, body, close_label, on_answer):
@@ -144,6 +155,7 @@ class Window(Adw.ApplicationWindow):
         page.set_title("Terminal")
         terminal.connect("title-changed", self._on_terminal_title, page)
         terminal.connect("exited", lambda *_: self.tabs.close_page(page))
+        terminal.connect("command-finished", self._on_command_finished, page)
         self.tabs.set_selected_page(page)
         terminal.grab_focus()
         return terminal
@@ -160,7 +172,31 @@ class Window(Adw.ApplicationWindow):
         page.set_title(title or "Terminal")
         self._sync_title()
 
+    def show_terminal(self, serial):
+        """Selects the tab of the terminal with this serial and raises the window."""
+        for terminal in self.terminals():
+            if terminal.serial == serial:
+                self.tabs.set_selected_page(self.tabs.get_page(terminal.get_parent()))
+        self.present()
+
+    def _on_command_finished(self, terminal, code, seconds, page):
+        out_of_sight = not self.is_active() or self.tabs.get_selected_page() is not page
+        if seconds < LONG_COMMAND_SECONDS or not out_of_sight or not Settings.get().notify_long_commands:
+            return
+        if self.tabs.get_selected_page() is not page:
+            page.set_needs_attention(True)
+        title = "Command finished" if code == 0 else f"Command failed (exit code {code})"
+        notification = Gio.Notification.new(title)
+        notification.set_body(f"{page.get_title()} · {format_duration(seconds)}")
+        notification.set_default_action_and_target(
+            "app.show-terminal", GLib.Variant("(uu)", (self.get_id(), terminal.serial)),
+        )
+        self.get_application().send_notification(f"command-{terminal.serial}", notification)
+
     def _on_tab_selected(self):
+        page = self.tabs.get_selected_page()
+        if page:
+            page.set_needs_attention(False)
         self._sync_title()
         if self.search.get_search_mode():
             self.search.apply()
