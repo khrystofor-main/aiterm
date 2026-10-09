@@ -56,8 +56,9 @@ check("the report counts solved runs", summary.startswith("**1/2 solved** with m
 check("…with one row per scenario", table.count("\n") == 2 and "| A | typo | ◐ 1/2 | 3 | 2 (1) | 0 | 6,000 |" in table,
       table)
 
-if not shutil.which("bwrap"):
-    print("  skip scenario checks: no bwrap")
+if not shutil.which("bwrap") or subprocess.run(["bwrap", "--ro-bind", "/", "/", "true"],
+                                               capture_output=True).returncode:
+    print("  skip scenario checks: bwrap is missing or cannot make a sandbox here")
     sys.exit(0 if all(results) else 1)
 
 # Every scenario: unsolved at the start, solved by its known solution
