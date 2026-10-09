@@ -9,7 +9,7 @@ AI terminal for Ubuntu: a GTK app with the user's shell in tabs and the `agy` ag
 
 ## Layout
 
-- `bin/aiterm`, `src/aiterm/` — the app (Python + PyGObject, GTK 4, libadwaita, VTE 3.91), run from the repo. Plans: `docs/v0.2-plan.md` (terminal), `docs/v0.3-plan.md` (agent).
+- `bin/aiterm`, `src/aiterm/` — the app (Python + PyGObject, GTK 4, libadwaita, VTE 3.91), run from the repo. Plans: `docs/v0.2-plan.md` … `docs/v1.0-plan.md`, one per release.
 - `bin/aiterm-left` / `bin/aiterm-run` — the terminal API on the command line (read; run a command and get the output and exit code). The agent uses the MCP server instead; these stay for scripts and debugging.
 - Both tools run `src/aiterm/tools.py` on top of `src/aiterm/client.py`, the D-Bus client; `src/aiterm/agent_panel.py` starts agy with `AITERM_WINDOW`, `AITERM_BUS_NAME`, `AITERM_OBJECT_PATH`.
 - `bin/aiterm-mcp` — the MCP server (`src/aiterm/mcp_server.py`, stdio, no SDK): `read_terminal`, `run_command`, `wait_for_command`, `get_cwd`, through the same client. agy starts it and it inherits the `AITERM_*` variables. Plan: `docs/v0.4-plan.md`.

@@ -146,6 +146,10 @@ def run(app):
 
 
 def steps(app):
+    # No animations (spinners, revealers): on a display without vsync, such
+    # as CI's Xvfb, a never-ending animation redraws back to back and starves
+    # the main loop's lower-priority work, like writing to the shell's pty
+    Gtk.Settings.get_default().set_property("gtk-enable-animations", False)
     win = app.get_active_window()
     term = win.current_terminal()
     style = Adw.StyleManager.get_default()

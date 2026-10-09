@@ -134,7 +134,7 @@ class Application(Adw.Application):
             website="https://github.com/khrystofor-main/aiterm",
             issue_url="https://github.com/khrystofor-main/aiterm/issues",
             license_type=Gtk.License.MIT_X11,
-            comments="A GTK 4 terminal for GNOME, growing into an AI terminal.",
+            comments="An AI terminal for GNOME: your shell, and an agent that works in it in plain sight.",
         ).present(self.get_active_window())
 
 
