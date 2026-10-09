@@ -23,6 +23,7 @@ SHORTCUTS_HELP = [
         ("Copy", "term.copy"),
         ("Paste", "term.paste"),
         ("Select All", "term.select-all"),
+        ("Find", "win.find"),
     ]),
     ("Tabs", [
         ("New Tab", "win.new-tab"),
