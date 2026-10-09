@@ -134,6 +134,21 @@ EFFECTS = {
         "Command Approval", "The bar asking to run the agent's command slides in, and Run pulses while it waits",
         pulse=Param(int, 300, 10_000),  # ms per pulse of the Run button
     ),
+    "chat_message": Effect(
+        "Chat Messages", "New messages fade in, rising from below",
+        distance=Param(float, 0, 100),  # px they rise, at intensity 1
+    ),
+    "typing": Effect("Typing Dots", "Three dots pulse while the agent works (duration: one pulse)"),
+    "stream": Effect("Streaming Text", "Each new piece of the agent's answer fades in"),
+    "tool_card": Effect(
+        "Command Blocks", "Command blocks open smoothly, with a running bar while the command works",
+        bar=Param(int, 300, 10_000),  # ms for the running bar to cross the block
+    ),
+    "scroll": Effect("Chat Scrolling", "The chat glides to new messages, unless you scrolled up"),
+    "link": Effect(
+        "Agent's Commands", "When the agent runs a command, its block and its output's stripe light up in one color",
+        color=Param(str),
+    ),
 }
 
 BUILTIN = {
@@ -151,6 +166,15 @@ BUILTIN = {
             "search": {"enabled": True, "duration": 180, "curve": "ease-out", "intensity": 1.0},
             "approval": {"enabled": True, "duration": 200, "curve": "ease-out", "intensity": 1.0,
                          "pulse": 1800},
+            "chat_message": {"enabled": True, "duration": 200, "curve": "ease-out", "intensity": 1.0,
+                             "distance": 8},
+            "typing": {"enabled": True, "duration": 1200, "curve": "ease-in-out", "intensity": 1.0},
+            "stream": {"enabled": True, "duration": 180, "curve": "ease-out", "intensity": 1.0},
+            "tool_card": {"enabled": True, "duration": 200, "curve": "ease-out", "intensity": 1.0,
+                          "bar": 1400},
+            "scroll": {"enabled": True, "duration": 200, "curve": "ease-out", "intensity": 1.0},
+            "link": {"enabled": True, "duration": 900, "curve": "ease-out", "intensity": 1.0,
+                     "color": "accent"},
         },
         "code_1_answers": ["grep", "diff", "test", "["],
     },
@@ -168,6 +192,15 @@ BUILTIN = {
             "search": {"enabled": True, "duration": 320, "curve": "ease-out", "intensity": 1.0},
             "approval": {"enabled": True, "duration": 350, "curve": "spring", "intensity": 1.0,
                          "pulse": 1200},
+            "chat_message": {"enabled": True, "duration": 380, "curve": "spring", "intensity": 1.0,
+                             "distance": 18},
+            "typing": {"enabled": True, "duration": 900, "curve": "ease-in-out", "intensity": 1.0},
+            "stream": {"enabled": True, "duration": 350, "curve": "ease-out", "intensity": 1.0},
+            "tool_card": {"enabled": True, "duration": 320, "curve": "spring", "intensity": 1.0,
+                          "bar": 1000},
+            "scroll": {"enabled": True, "duration": 350, "curve": "ease-in-out", "intensity": 1.0},
+            "link": {"enabled": True, "duration": 1400, "curve": "ease-out", "intensity": 1.0,
+                     "color": "#c061cb"},
         },
         "code_1_answers": ["grep", "diff", "test", "["],
     },
@@ -460,11 +493,11 @@ def window_active(widget):
     return root is None or not isinstance(root, Gtk.Window) or root.is_active()
 
 
-def duration(widget, effect):
+def duration(widget, effect, force=False):
     """The effect's duration in ms for a widget's own transition (a
     Gtk.Revealer's), or 0 when it should not animate."""
-    params = Animations.get().effect(effect)
-    if not params or not window_active(widget):
+    params = Animations.get().effect(effect, force)
+    if not params or not (force or window_active(widget)):
         return 0
     return int(params["duration"])
 

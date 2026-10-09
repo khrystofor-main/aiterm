@@ -6,9 +6,11 @@ Built-in presets are fixed: their rows are read-only until the preset is
 duplicated. Changes to the user's own presets are saved at once, as the
 differences from the base (animations.py)."""
 
-from gi.repository import Adw, Gio, GLib, Gtk
+from gi.repository import Adw, Gio, GLib, GObject, Gtk
 
 from aiterm.animations import EFFECTS, Animations
+from aiterm.approval import ApprovalBar
+from aiterm.chat_view import ChatView
 from aiterm.settings import Settings
 from aiterm.terminal import PADDING_Y, Terminal
 
@@ -21,13 +23,73 @@ PREVIEW_TEXT = (
     f"{PROMPT}\x1b[?25l"  # no cursor
 )
 PREVIEW_ROWS = 7
+CHAT_EFFECTS = ("chat_message", "typing", "stream", "tool_card", "scroll", "link")
+WINDOW_EFFECTS = ("panel", "search", "approval")
+
+
+class PreviewProcess(GObject.Object):
+    """Stands in for agy behind the preview chat: the chat's events come from
+    a script (play_chat)."""
+
+    __gsignals__ = {
+        "event": (GObject.SignalFlags.RUN_FIRST, None, (object,)),
+        "exited": (GObject.SignalFlags.RUN_FIRST, None, (bool, str)),
+    }
+
+    def __init__(self):
+        super().__init__()
+        self.busy = self.switching = self.running = False
+        self.conversation_id = None
+
+    def send(self, _text):
+        self.busy = True
+
+    def stop(self):
+        pass
+
+
+def _step(index, **fields):
+    return {"event": "step_update", "step_update": {"step_index": index, **fields}}
+
+
+def play_chat(chat):
+    """A short exchange in the preview chat, showing every chat effect: the
+    message, the dots, a command block with its running bar that lights up
+    as the "agent" runs it, the answer streaming in, the scroll."""
+    child = chat.messages.get_first_child()
+    while child:
+        chat.messages.remove(child)
+        child = chat.messages.get_first_child()
+    chat.steps.clear()
+    chat.fades.clear()
+    chat.process.busy = False
+    chat.send("Why did the build fail?")
+    tool = {"ServerName": "aiterm_terminal", "ToolName": "run_command", "Arguments": {"command": "make test"}}
+    answer = ["The test ", "`test_parse` fails: ", "the config file ", "has a trailing comma ", "on line 4."]
+    script = [
+        (600, lambda: chat.on_event(_step(1, step_type="tool", state="RUNNING", tool_name="call_mcp_tool",
+                                          tool_info={"parameters": tool}))),
+        (300, lambda: chat.approval.emit("agent-ran", "make test")),
+        (900, lambda: chat.on_event(_step(1, step_type="tool", state="DONE", tool_name="call_mcp_tool",
+                                          tool_info={"parameters": tool,
+                                                     "output": "$ make test\n2 passed, 1 failed\n[exit code 2]"}))),
+        *[(150, lambda piece=piece: chat.on_event(_step(2, step_type="agent_response", text_delta=piece)))
+          for piece in answer],
+        (200, lambda: chat.on_event({"event": "result", "result": {"status": "SUCCESS"}})),
+    ]
+
+    def run(i=0):
+        if i < len(script):
+            delay, action = script[i]
+            GLib.timeout_add(delay, lambda: (action(), run(i + 1)) and False)
+    run()
 
 
 def play(terminal, effect, window=None):
     """Plays one effect, even when it is off: in the preview terminal, or
     for the window's own parts (the agent panel, the find and approval
     bars) in `window`, behind the dialog."""
-    if effect in ("panel", "search", "approval"):
+    if effect in WINDOW_EFFECTS:
         if window is not None and hasattr(window, "agent_panel"):
             play_in_window(window, effect)
         return
@@ -97,6 +159,9 @@ class AnimationsPage(Adw.PreferencesPage):
 
         preview = Adw.PreferencesGroup(title="Preview")
         self.preview = Terminal(argv=["sleep", "infinity"])
+        self.chat_preview = ChatView(PreviewProcess(), ApprovalBar(), force_animations=True)
+        self.chat_preview.set_size_request(-1, 260)
+        self.chat_preview.bottom.set_visible(False)  # nothing to type here
         self.preview.set_input_enabled(False)
         self.preview.set_focusable(False)
         self.preview.set_size(80, PREVIEW_ROWS)
@@ -104,7 +169,10 @@ class AnimationsPage(Adw.PreferencesPage):
         self.preview.connect("char-size-changed", lambda _t, _w, height: fit(height))
         fit(self.preview.get_char_height())
         self.preview.feed(PREVIEW_TEXT.encode())
-        frame = Gtk.Frame(child=self.preview, overflow=Gtk.Overflow.HIDDEN)
+        self.previews = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
+        self.previews.add_named(self.preview, "terminal")
+        self.previews.add_named(self.chat_preview, "chat")
+        frame = Gtk.Frame(child=self.previews, overflow=Gtk.Overflow.HIDDEN)
         frame.add_css_class("card")
         preview.add(frame)
         self.add(preview)
@@ -179,7 +247,13 @@ class AnimationsPage(Adw.PreferencesPage):
             self.animations.set_param(effect, param, value)
 
     def show_effect(self, effect):
-        play(self.preview, effect, self.get_root())
+        if effect in CHAT_EFFECTS:
+            self.previews.set_visible_child_name("chat")
+            play_chat(self.chat_preview)
+        else:
+            if effect not in WINDOW_EFFECTS:
+                self.previews.set_visible_child_name("terminal")
+            play(self.preview, effect, self.get_root())
 
 
 class EffectRow(Adw.ActionRow):

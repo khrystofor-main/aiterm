@@ -177,6 +177,7 @@ class TerminalEffects:
         self._last_update = None  # (time, cursor row) of the last stripe update
         self._tick = None
         self._pointer = None  # (x, y) over the terminal, for the marks
+        self._linked = False  # the running command is the agent's (stripes in the link color)
         terminal.connect("contents-changed", self._on_contents_changed)
         terminal.connect("command-finished", self._on_command_finished)
         motion = Gtk.EventControllerMotion()
@@ -224,7 +225,14 @@ class TerminalEffects:
             self.stripes[-1].started = now
         else:
             self.stripes.append(_Running(first, last, now, params, force))
+            if self._linked:
+                self.stripes[-1].color = "link"
         self._start()
+
+    def agent_command(self):
+        """The next command is the agent's: its stripes take the link color,
+        the one its block in the chat lights up in."""
+        self._linked = self.animations.effect("link") is not None
 
     def mark(self, row, code, force=False):
         """✗ and the exit code at the end of the row. It is a mark, not only
@@ -347,10 +355,12 @@ class TerminalEffects:
             self._light_output(command.input_row, last, again=False)
         self._seen_row = self._last_update = None
         failed = is_failure(command.text, code, self.animations.code_1_answers())
-        # Its stripes, still fading, take the color of how it ended
+        # Its stripes, still fading, take the color of how it ended (the
+        # agent's keep theirs; the ✗ tells a failure)
         for stripe in self.stripes:
-            if command.input_row < stripe.first and stripe.last < command.end_row:
+            if command.input_row < stripe.first and stripe.last < command.end_row and not self._linked:
                 stripe.color = "error" if failed else "success"
+        self._linked = False
         if failed:
             if self._row_visible(command.input_row):
                 self.shake(command.input_row)
@@ -395,6 +405,8 @@ class TerminalEffects:
     def _color(self, spec):
         """A preset color: the theme's accent, the palette's green or red
         ("success", "error"), or "#rrggbb"."""
+        if spec == "link":
+            spec = self.animations.values()["effects"]["link"]["color"]
         if spec == "accent":
             return Adw.StyleManager.get_default().get_accent_color_rgba()
         if spec in ("success", "error"):

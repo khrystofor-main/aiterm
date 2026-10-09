@@ -96,7 +96,7 @@ class Application(Adw.Application):
 
     def _load_animated_css(self):
         values = Animations.get().values()
-        self.animated_css.load_from_string(approval.animated_css(values))
+        self.animated_css.load_from_string(approval.animated_css(values) + chat_view.animated_css(values))
 
     def do_dbus_register(self, connection, object_path):
         # The agent's tools reach the terminals through this (see dbus_api.py)

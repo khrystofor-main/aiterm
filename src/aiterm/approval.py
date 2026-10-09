@@ -10,12 +10,18 @@ in the app, not in the agent's own permission settings: whatever the agent
 is told or configured to do, nothing is typed until the user clicks Run.
 """
 
-from gi.repository import GLib, Gtk, Pango
+from gi.repository import GLib, GObject, Gtk, Pango
 
 from aiterm import animations
 
 
 class ApprovalBar(Gtk.Revealer):
+    __gsignals__ = {
+        # The agent's command was typed into the terminal (dbus_api.py); the
+        # chat lights up its block (chat_view.py)
+        "agent-ran": (GObject.SignalFlags.RUN_FIRST, None, (str,)),
+    }
+
     def __init__(self):
         super().__init__(transition_type=Gtk.RevealerTransitionType.SLIDE_DOWN)
         self._callback = None
