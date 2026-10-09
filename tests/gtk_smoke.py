@@ -183,6 +183,37 @@ def steps(app):
     win.present()
     wait_for(lambda: app.get_active_window() is win, 2)
 
+    term.feed_child(b"sleep 60\n")
+    check("knows a program is running", wait_for(lambda: term.running_program() == "sleep"),
+          f"{term.running_program()!r}")
+    win.activate_action("win.close-tab")
+    dialog = win.get_visible_dialog()
+    check("closing a busy tab asks first", dialog is not None and win.tabs.get_n_pages() == 1)
+    if dialog:
+        dialog.emit("response", "cancel")
+        dialog.force_close()
+    check("Cancel keeps the tab", win.tabs.get_n_pages() == 1)
+    win.close()
+    dialog = win.get_visible_dialog()
+    check("closing a window with a busy tab asks first", dialog is not None and win in app.get_windows())
+    if dialog:
+        dialog.emit("response", "cancel")
+        dialog.force_close()
+    win.activate_action("win.new-tab")
+    busy = win.current_terminal()
+    wait_for(lambda: "$ " in screen_text(busy))
+    busy.feed_child(b"sleep 60\n")
+    wait_for(lambda: busy.running_program() == "sleep")
+    win.activate_action("win.close-tab")
+    dialog = win.get_visible_dialog()
+    if dialog:
+        dialog.emit("response", "close")
+        dialog.force_close()
+    check("Close Tab in the dialog closes the busy tab",
+          wait_for(lambda: win.tabs.get_n_pages() == 1 and win.current_terminal() is term, 3))
+    term.feed_child(b"\x03")  # Ctrl+C
+    check("an idle shell is not a running program", wait_for(lambda: term.running_program() is None))
+
     for action in ("shortcuts", "about"):
         app.activate_action(action, None)
         dialog = win.get_visible_dialog()

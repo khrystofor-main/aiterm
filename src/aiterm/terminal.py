@@ -66,7 +66,7 @@ class Terminal(Vte.Terminal):
             self.connect(f"termprop-changed::{Vte.TERMPROP_XTERM_TITLE}", self._on_title)
         else:
             self.connect("window-title-changed", self._on_title)
-        self.connect("child-exited", lambda *_: self.emit("exited"))
+        self.connect("child-exited", self._on_child_exited)
         self._add_clipboard_actions()
 
         self._pid = None
@@ -118,6 +118,27 @@ class Terminal(Vte.Terminal):
         if self.actions.get_action_enabled(name):
             self.actions.activate_action(name, None)
 
+    def running_program(self):
+        """The program running in the foreground (e.g. "vim"), or None while
+        the shell just waits at its prompt.
+
+        The terminal's foreground process group is the shell's own while it
+        waits for input, and the running job's while a command runs."""
+        pty = self.get_pty()
+        if not pty or not self._pid:
+            return None
+        try:
+            group = os.tcgetpgrp(pty.get_fd())
+        except OSError:
+            return None
+        if group == self._pid:
+            return None
+        try:
+            with open(f"/proc/{group}/comm") as f:
+                return f.read().strip()
+        except OSError:
+            return "a program"
+
     def current_directory(self):
         """The shell's folder: from OSC 7 (Ubuntu's bash sends it through
         /etc/profile.d/vte-2.91.sh), else from /proc."""
@@ -149,6 +170,10 @@ class Terminal(Vte.Terminal):
         self._pid = pid if pid > 0 else None
         if error:
             self.feed(f"aiterm: could not start the shell: {error.message}\r\n".encode())
+
+    def _on_child_exited(self, *_):
+        self._pid = None
+        self.emit("exited")
 
     def _on_title(self, *_):
         self.emit("title-changed", self.title())
