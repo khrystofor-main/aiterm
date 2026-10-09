@@ -224,12 +224,16 @@ class Window(Adw.ApplicationWindow):
     def _on_agent_panel_toggled(self, action, state):
         action.set_state(state)
         visible = state.get_boolean()
-        self.agent_panel.set_visible(visible)
         Settings.get().agent_panel_visible = visible
         if visible:
+            self.agent_panel.set_visible(True)
             self._place_panel_border()
+            self.agent_panel.slide(showing=True)
             self.agent_panel.start()
         else:
+            # Hidden at the end of the slide, unless it was opened again meanwhile
+            self.agent_panel.slide(showing=False, done=lambda: self.agent_panel.set_visible(
+                self.lookup_action("agent-panel").get_state().get_boolean()))
             terminal = self.current_terminal()
             if terminal:
                 terminal.grab_focus()

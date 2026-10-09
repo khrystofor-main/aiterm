@@ -23,8 +23,14 @@ PREVIEW_TEXT = (
 PREVIEW_ROWS = 7
 
 
-def play(terminal, effect):
-    """Plays one effect in the preview terminal, even when it is off."""
+def play(terminal, effect, window=None):
+    """Plays one effect, even when it is off: in the preview terminal, or
+    for the window's own parts (the agent panel, the find and approval
+    bars) in `window`, behind the dialog."""
+    if effect in ("panel", "search", "approval"):
+        if window is not None and hasattr(window, "agent_panel"):
+            play_in_window(window, effect)
+        return
     top = terminal.top_row()
     if effect == "shake":
         terminal.effects.shake(top, force=True)  # the failed `ls`
@@ -34,6 +40,23 @@ def play(terminal, effect):
         terminal.effects.mark(top, 2, force=True)
     elif effect == "theme":
         terminal.show_color_change()
+
+
+def play_in_window(window, effect):
+    if effect == "panel":
+        panel = window.agent_panel
+        if panel.get_visible():
+            panel.slide(showing=False, done=lambda: panel.slide(showing=True))
+        else:
+            panel.set_visible(True)
+            window._place_panel_border()
+            panel.slide(showing=True, done=lambda: GLib.timeout_add(
+                600, lambda: panel.slide(showing=False, done=lambda: panel.set_visible(False)) and False))
+    elif effect == "search":
+        window.search.open()
+        GLib.timeout_add(1200, lambda: window.search.set_search_mode(False) and False)
+    elif effect == "approval":
+        window.approval.preview("make test")
 
 
 class AnimationsPage(Adw.PreferencesPage):
@@ -156,7 +179,7 @@ class AnimationsPage(Adw.PreferencesPage):
             self.animations.set_param(effect, param, value)
 
     def show_effect(self, effect):
-        play(self.preview, effect)
+        play(self.preview, effect, self.get_root())
 
 
 class EffectRow(Adw.ActionRow):

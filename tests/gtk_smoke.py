@@ -33,7 +33,7 @@ except (ImportError, ValueError) as e:
     sys.exit(SKIP)
 
 import aiterm.window as window_module  # noqa: E402
-from aiterm import dbus_api, effects  # noqa: E402
+from aiterm import animations, dbus_api, effects  # noqa: E402
 from aiterm.application import Application  # noqa: E402
 from aiterm.animations import Animations  # noqa: E402
 from aiterm.chat_view import CommandRow, markdown_to_pango  # noqa: E402
@@ -154,6 +154,11 @@ def animations_page(page):
         page.show_effect(effect)
     check("Show plays the effects in the preview",
           len(preview.shakes) == 1 and len(preview.marks) == 1 and preview.blend is not None)
+    window = page.get_root()
+    page.show_effect("approval")
+    check("…and the window's own parts behind the dialog", window.approval.get_reveal_child()
+          and not window.approval.pending)
+    window.approval.answer(False)
     page.duplicate_button.emit("clicked")
     preset = engine.preset
     check("Duplicate makes an editable copy and picks it",
@@ -232,6 +237,7 @@ def steps(app):
     check("after clear, the view's top row is the new prompt's", ok,
           f"top {term.top_row()} prompt {log.input_row} offset {term.row_offset()}")
 
+    original_window_active = animations.window_active
     # Effects (effects.py), on a clock moved by hand. Animations are on
     # explicitly: GTK's own are off for this test (see the top)
     Settings.get().animations = "on"
@@ -331,6 +337,35 @@ def steps(app):
     check("…and ends on the new palette", fx.blend is None and background(term) == solarized,
           str(background(term)))
     Settings.get().palette = old_palette
+
+    # The window's parts, animated with Adw animations: this display may not
+    # draw frames, so they are finished by hand
+    animations.window_active = lambda widget: True
+    panel_action = win.lookup_action("agent-panel")
+    panel = win.agent_panel
+    panel_action.change_state(GLib.Variant.new_boolean(True))
+    check("the agent panel slides in from the right", panel.get_visible() and panel._offset == 1,
+          f"{panel.get_visible()} {panel._offset}")
+    animations.finish_all()
+    check("…and settles in place", panel._offset == 0)
+    panel_action.change_state(GLib.Variant.new_boolean(False))
+    check("closing, it slides out before it hides (the terminal resizes once)", panel.get_visible())
+    animations.finish_all()
+    check("…then hides", not panel.get_visible() and panel._offset == 0)
+    win.search.open()
+    revealer = win.search.get_first_child()
+    check("the find bar slides down, timed by the preset", isinstance(revealer, Gtk.Revealer)
+          and revealer.get_transition_duration() == Animations.get().effect("search")["duration"])
+    win.search.set_search_mode(False)
+    answers = []
+    win.approval.ask("echo pulse", answers.append)
+    check("the approval bar slides in, timed by the preset, Run pulsing",
+          win.approval.get_transition_duration() == Animations.get().effect("approval")["duration"]
+          and win.approval.run_button.has_css_class("approval-pulse"))
+    win.approval.answer(False)
+    check("…and stops pulsing once answered", answers == [False]
+          and not win.approval.run_button.has_css_class("approval-pulse"))
+    animations.window_active = original_window_active
     now[0] += 10_000
     fx.prune()
     Settings.get().animations = "off"
