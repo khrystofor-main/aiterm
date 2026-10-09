@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# aiterm-mcp — the MCP server that gives the agent the user's terminal as
+# tools: read_terminal, run_command, wait_for_command, get_cwd. agy starts it
+# from the aiterm plugin (agy-plugin/mcp_config.json) and talks to it over
+# stdin/stdout. Outside aiterm (no AITERM_WINDOW) it offers no tools.
+# Talks to the Aiterm app over D-Bus (src/aiterm/mcp_server.py, src/aiterm/client.py).
+set -euo pipefail
+
+ROOT=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
+PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m aiterm.mcp_server "$@"
