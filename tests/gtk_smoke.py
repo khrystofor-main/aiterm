@@ -152,8 +152,8 @@ def steps(app):
     check("terminal knows the shell's folder", wait_for(lambda: term.current_directory() == "/tmp"),
           f"folder: {term.current_directory()!r}")
     win_keys = capture_shortcuts(win)
-    check("Ctrl+Shift+T/W are caught before VTE",
-          {Gtk.ShortcutTrigger.parse_string(f"<Control><Shift>{k}").to_string() for k in "tw"} <= set(win_keys),
+    check("Ctrl+Shift+T/W/N are caught before VTE",
+          {Gtk.ShortcutTrigger.parse_string(f"<Control><Shift>{k}").to_string() for k in "twn"} <= set(win_keys),
           str(list(win_keys)))
     shortcuts = win.tabs.get_shortcuts()
     check("tab switching keys on, Ctrl+Home/End left to programs",
@@ -170,6 +170,25 @@ def steps(app):
     win.activate_action("win.close-tab")
     check("close tab goes back to the first one",
           win.tabs.get_n_pages() == 1 and win.current_terminal() is term)
+
+    app.activate_action("new-window", None)
+    other = app.get_active_window()
+    check("new window opens", len(app.get_windows()) == 2 and other is not win)
+    other_term = other.current_terminal()
+    wait_for(lambda: "$ " in screen_text(other_term))
+    check("new window starts in the current tab's folder",
+          wait_for(lambda: other_term.current_directory() == "/tmp"), f"{other_term.current_directory()!r}")
+    other.close()
+    wait_for(lambda: len(app.get_windows()) == 1)
+    win.present()
+    wait_for(lambda: app.get_active_window() is win, 2)
+
+    for action in ("shortcuts", "about"):
+        app.activate_action(action, None)
+        dialog = win.get_visible_dialog()
+        check(f"main menu opens {action}", dialog is not None)
+        if dialog:
+            dialog.force_close()
 
     closed = []
     win.connect("close-request", lambda *_: closed.append(True) and False)

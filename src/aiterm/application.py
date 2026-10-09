@@ -6,14 +6,37 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 gi.require_version("Vte", "3.91")
 
-from gi.repository import Adw, Gdk, Gtk  # noqa: E402
+from gi.repository import Adw, Gdk, Gio, Gtk  # noqa: E402
 
-from aiterm import APP_ID  # noqa: E402
+from aiterm import APP_ID, VERSION  # noqa: E402
 from aiterm import terminal, window  # noqa: E402
 from aiterm.window import Window  # noqa: E402
 
 # Keeps text off the window edges
 CSS = "vte-terminal { padding: 4px 8px; }"
+
+# The Keyboard Shortcuts dialog: (section, [(title, action name or accel)]).
+# Actions show the keys registered for them; Adw.TabView's own keys are listed
+# as they are
+SHORTCUTS_HELP = [
+    ("Terminal", [
+        ("Copy", "term.copy"),
+        ("Paste", "term.paste"),
+        ("Select All", "term.select-all"),
+    ]),
+    ("Tabs", [
+        ("New Tab", "win.new-tab"),
+        ("Close Tab", "win.close-tab"),
+        ("Next Tab", "<Control>Page_Down"),
+        ("Previous Tab", "<Control>Page_Up"),
+        ("Switch to Tab 1…9", "<Alt>1...9"),
+        ("Move Tab Right", "<Control><Shift>Page_Down"),
+        ("Move Tab Left", "<Control><Shift>Page_Up"),
+    ]),
+    ("Windows", [
+        ("New Window", "app.new-window"),
+    ]),
+]
 
 
 class Application(Adw.Application):
@@ -31,14 +54,54 @@ class Application(Adw.Application):
         )
         # Terminals and windows catch these keys themselves (see shortcuts.py);
         # registering them here only shows them next to the items in menus
-        for prefix, shortcuts in (("term", terminal.SHORTCUTS), ("win", window.SHORTCUTS)):
-            for name, accel in shortcuts.items():
-                self.set_accels_for_action(f"{prefix}.{name}", [accel])
+        for name, accel in terminal.SHORTCUTS.items():
+            self.set_accels_for_action(f"term.{name}", [accel])
+        for action, accel in window.SHORTCUTS.items():
+            self.set_accels_for_action(action, [accel])
+
+        for name, callback in {
+            "new-window": self.new_window,
+            "shortcuts": self.show_shortcuts,
+            "about": self.show_about,
+        }.items():
+            action = Gio.SimpleAction.new(name, None)
+            action.connect("activate", lambda *_, callback=callback: callback())
+            self.add_action(action)
 
     def do_activate(self):
         # Launching the app again (menu, dock) opens another window in the same
         # process, like other GNOME terminals
         Window(application=self).present()
+
+    def new_window(self):
+        """Opens a window in the folder of the current tab."""
+        current = self.get_active_window()
+        terminal = current.current_terminal() if current else None
+        Window(application=self, cwd=terminal.current_directory() if terminal else None).present()
+
+    def show_shortcuts(self):
+        dialog = Adw.ShortcutsDialog()
+        for title, items in SHORTCUTS_HELP:
+            section = Adw.ShortcutsSection(title=title)
+            for item_title, accel in items:
+                if accel.startswith(("app.", "win.", "term.")):
+                    section.add(Adw.ShortcutsItem.new_from_action(item_title, accel))
+                else:
+                    section.add(Adw.ShortcutsItem.new(item_title, accel))
+            dialog.add(section)
+        dialog.present(self.get_active_window())
+
+    def show_about(self):
+        Adw.AboutDialog(
+            application_name="Aiterm",
+            application_icon="utilities-terminal",
+            version=VERSION,
+            developer_name="Oleksandr Khrystofor",
+            website="https://github.com/khrystofor-main/aiterm",
+            issue_url="https://github.com/khrystofor-main/aiterm/issues",
+            license_type=Gtk.License.MIT_X11,
+            comments="A GTK 4 terminal for GNOME, growing into an AI terminal.",
+        ).present(self.get_active_window())
 
 
 def main(argv):

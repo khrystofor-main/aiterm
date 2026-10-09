@@ -7,11 +7,12 @@ from aiterm.terminal import Terminal
 
 APP_NAME = "Aiterm"
 
-# win.* action -> key. Switching tabs (Ctrl+PgUp/PgDn, Ctrl+Tab, Alt+1…9,
+# Action -> key. Switching tabs (Ctrl+PgUp/PgDn, Ctrl+Tab, Alt+1…9,
 # Ctrl+Shift+PgUp/PgDn to move) comes with Adw.TabView
 SHORTCUTS = {
-    "new-tab": "<Control><Shift>t",
-    "close-tab": "<Control><Shift>w",
+    "win.new-tab": "<Control><Shift>t",
+    "win.close-tab": "<Control><Shift>w",
+    "app.new-window": "<Control><Shift>n",
 }
 
 # Ctrl+Home/End belong to programs running in the terminal (editors, less)
@@ -21,14 +22,31 @@ TAB_VIEW_SHORTCUTS = Adw.TabViewShortcuts.ALL_SHORTCUTS & ~(
 )
 
 
+def main_menu():
+    menu = Gio.Menu()
+    windows = Gio.Menu()
+    windows.append("New Window", "app.new-window")
+    windows.append("New Tab", "win.new-tab")
+    menu.append_section(None, windows)
+    app = Gio.Menu()
+    app.append("Keyboard Shortcuts", "app.shortcuts")
+    app.append("About Aiterm", "app.about")
+    menu.append_section(None, app)
+    return menu
+
+
 class Window(Adw.ApplicationWindow):
-    def __init__(self, **kwargs):
+    def __init__(self, cwd=None, **kwargs):
         super().__init__(default_width=960, default_height=600, title=APP_NAME, **kwargs)
 
         self.header_title = Adw.WindowTitle(title=APP_NAME)
         header = Adw.HeaderBar(title_widget=self.header_title)
         header.pack_start(Gtk.Button(
             icon_name="tab-new-symbolic", action_name="win.new-tab", tooltip_text="New Tab",
+        ))
+        header.pack_end(Gtk.MenuButton(
+            icon_name="open-menu-symbolic", menu_model=main_menu(), primary=True,
+            tooltip_text="Main Menu",
         ))
 
         # The tab bar hides itself while there is a single tab
@@ -51,11 +69,11 @@ class Window(Adw.ApplicationWindow):
             action.connect("activate", lambda *_, callback=callback: callback())
             self.add_action(action)
         add_capture_shortcuts(self, {
-            trigger: (lambda name=name: self.activate_action(f"win.{name}"))
+            trigger: (lambda name=name: self.activate_action(name))
             for name, trigger in SHORTCUTS.items()
         })
 
-        self.add_tab()
+        self.add_tab(cwd)
 
     def new_tab(self):
         """Opens a tab in the folder of the current one, like Ptyxis."""
