@@ -39,6 +39,7 @@ SHORTCUTS_HELP = [
     ]),
     ("Windows", [
         ("New Window", "app.new-window"),
+        ("Agent Panel", "win.agent-panel"),
         ("Preferences", "app.preferences"),
     ]),
     ("View", [

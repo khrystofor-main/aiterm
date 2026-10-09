@@ -357,13 +357,31 @@ def steps(app):
           win.tabs.get_n_pages() == 1 and win.current_terminal() is term)
     check("a closed tab stops following the preferences", second._handlers == [])
 
+    check("the agent panel starts hidden", not win.agent_panel.get_visible())
+    check("Alt+Enter is caught before VTE",
+          Gtk.ShortcutTrigger.parse_string("<Alt>Return").to_string() in win_keys)
+    win.activate_action("win.agent-panel")
+    check("the agent panel opens", win.agent_panel.get_visible() and settings.agent_panel_visible)
+    if wait_for(lambda: win.paned.get_width() > 600, 3):
+        check("the panel opens at its saved width",
+              abs(win.paned.get_width() - win.paned.get_position() - 380) <= 1,
+              f"{win.paned.get_width()} - {win.paned.get_position()}")
+        win.paned.set_position(win.paned.get_width() - 500)
+        check("dragging the border sets the panel width", settings.agent_panel_width == 500,
+              f"{settings.agent_panel_width}")
+    else:
+        print("  skip panel width: the window has no size (in the background)")
+
     app.activate_action("new-window", None)
     other = app.get_active_window()
+    check("a new window opens with the panel too", other.agent_panel.get_visible())
     check("new window opens", len(app.get_windows()) == 2 and other is not win)
     other_term = other.current_terminal()
     wait_for(lambda: "$ " in screen_text(other_term))
     check("new window starts in the current tab's folder",
           wait_for(lambda: other_term.current_directory() == "/tmp"), f"{other_term.current_directory()!r}")
+    other.activate_action("win.agent-panel")
+    check("the panel closes", not other.agent_panel.get_visible() and not settings.agent_panel_visible)
     other.set_default_size(700, 400)
     other.close()
     wait_for(lambda: len(app.get_windows()) == 1)
