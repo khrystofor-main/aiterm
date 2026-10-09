@@ -43,6 +43,8 @@ os.environ["SHELL"] = "/bin/bash"
 # Preferences go to a throwaway folder, never the user's ~/.config/aiterm
 CONFIG_DIR = tempfile.mkdtemp(prefix="aiterm-test-")
 os.environ["AITERM_CONFIG_DIR"] = CONFIG_DIR
+# The agent panel runs a plain bash instead of agy: no login, no tokens
+os.environ["AITERM_AGENT"] = "/bin/bash --norc --noprofile"
 results = []
 
 
@@ -444,8 +446,25 @@ def steps(app):
     check("the agent panel starts hidden", not win.agent_panel.get_visible())
     check("Alt+Enter is caught before VTE",
           Gtk.ShortcutTrigger.parse_string("<Alt>Return").to_string() in win_keys)
-    win.activate_action("win.agent-panel")
-    check("the agent panel opens", win.agent_panel.get_visible() and settings.agent_panel_visible)
+    win.activate_action("win.switch-to-agent")
+    check("Alt+Enter opens the agent panel", win.agent_panel.get_visible() and settings.agent_panel_visible)
+    agent = win.agent_panel.terminal
+    check("…and starts the agent in it", agent is not None)
+    wait_for(lambda: "$ " in screen_text(agent))
+    agent.feed_child(b"echo window=$AITERM_WINDOW\n")
+    check("the agent knows its window", wait_for(lambda: f"window={win.get_id()}" in screen_text(agent)),
+          screen_text(agent)[-200:])
+    # End to end: the agent's tool types into the user's terminal
+    agent.feed_child(b"aiterm-run 'echo from-agent'\n")
+    check("the agent's aiterm-run runs in the user's terminal",
+          wait_for(lambda: log.commands and log.commands[-1].text == "echo from-agent")
+          and log.commands[-1].output == "from-agent", repr(log.commands[-1] if log.commands else None))
+    check("…and gets the output back",
+          wait_for(lambda: "$ echo from-agent\nfrom-agent" in screen_text(agent)), screen_text(agent)[-300:])
+    agent.feed_child(b"exit\n")
+    check("when the agent exits, the panel offers a restart", wait_for(lambda: win.agent_panel.terminal is None))
+    win.agent_panel.focus()
+    check("restart starts it again", win.agent_panel.terminal is not None)
     if wait_for(lambda: win.paned.get_width() > 600, 3):
         check("the panel opens at its saved width",
               abs(win.paned.get_width() - win.paned.get_position() - 380) <= 1,

@@ -17,8 +17,8 @@ SHORTCUTS = {
     "win.close-tab": "<Control><Shift>w",
     "app.new-window": "<Control><Shift>n",
     "win.find": "<Control><Shift>f",
-    # Alt+Enter switched between the shell and the agent in the tmux version
-    "win.agent-panel": "<Alt>Return",
+    # Alt+Enter switches between the shell and the agent, as in the tmux version
+    "win.switch-to-agent": "<Alt>Return",
     "app.preferences": "<Control>comma",
     "win.zoom-in": "<Control>plus|<Control>equal|<Control>KP_Add",
     "win.zoom-out": "<Control>minus|<Control>KP_Subtract",
@@ -100,7 +100,7 @@ class Window(Adw.ApplicationWindow):
         ))
         header.pack_end(Gtk.ToggleButton(
             icon_name="sidebar-show-right-symbolic", action_name="win.agent-panel",
-            tooltip_text="Agent Panel (Alt+Enter)",
+            tooltip_text="Agent Panel",
         ))
 
         # The tab bar hides itself while there is a single tab
@@ -111,7 +111,7 @@ class Window(Adw.ApplicationWindow):
 
         # Terminal on the left, the agent panel on the right; drag the border
         # to resize. The panel keeps its width when the window is resized
-        self.agent_panel = AgentPanel()
+        self.agent_panel = AgentPanel(self)
         self.agent_panel.set_visible(settings.agent_panel_visible)
         self.paned = Gtk.Paned(
             start_child=self.tabs, end_child=self.agent_panel,
@@ -134,6 +134,7 @@ class Window(Adw.ApplicationWindow):
             "zoom-in": lambda: self.set_zoom(self.zoom * ZOOM_STEP),
             "zoom-out": lambda: self.set_zoom(self.zoom / ZOOM_STEP),
             "zoom-reset": lambda: self.set_zoom(1.0),
+            "switch-to-agent": self.switch_to_agent,
         }
         for name, callback in actions.items():
             action = Gio.SimpleAction.new(name, None)
@@ -153,6 +154,8 @@ class Window(Adw.ApplicationWindow):
         self.connect("close-request", lambda *_: self._on_close_request())
 
         self.add_tab(cwd)
+        if self.agent_panel.get_visible():
+            self.agent_panel.start()
 
     def new_tab(self):
         """Opens a tab in the folder of the current one, like Ptyxis."""
@@ -194,6 +197,17 @@ class Window(Adw.ApplicationWindow):
         page.set_title(title or "Terminal")
         self._sync_title()
 
+    def switch_to_agent(self):
+        """Alt+Enter: from the shell to the agent (opening the panel), and back."""
+        if self.agent_panel.get_visible() and self.agent_panel.has_focus():
+            terminal = self.current_terminal()
+            if terminal:
+                terminal.grab_focus()
+            return
+        if not self.agent_panel.get_visible():
+            self.activate_action("win.agent-panel")
+        self.agent_panel.focus()
+
     def _on_agent_panel_toggled(self, action, state):
         action.set_state(state)
         visible = state.get_boolean()
@@ -201,6 +215,11 @@ class Window(Adw.ApplicationWindow):
         Settings.get().agent_panel_visible = visible
         if visible:
             self._place_panel_border()
+            self.agent_panel.start()
+        else:
+            terminal = self.current_terminal()
+            if terminal:
+                terminal.grab_focus()
 
     # The paned's position is the terminal's width; the panel takes the rest.
     # max-position changes with the paned's size, so it doubles as a resize
