@@ -160,13 +160,25 @@ def steps(app):
           shortcuts & Adw.TabViewShortcuts.CONTROL_PAGE_DOWN and shortcuts & Adw.TabViewShortcuts.ALT_DIGITS
           and not shortcuts & Adw.TabViewShortcuts.CONTROL_HOME)
 
+    check("Ctrl+plus/minus/0 are caught before VTE",
+          {"<Control>plus|<Control>equal|<Control>KP_Add", "<Control>minus|<Control>KP_Subtract",
+           "<Control>0|<Control>KP_0"} <= set(win_keys))
+    win.activate_action("win.zoom-in")
+    win.activate_action("win.zoom-in")
+    check("zoom in scales the font", term.get_font_scale() == 1.21, f"{term.get_font_scale()}")
+
     win.activate_action("win.new-tab")
     second = win.current_terminal()
+    check("new tab gets the window's zoom", second.get_font_scale() == 1.21)
     check("new tab opens and is selected", win.tabs.get_n_pages() == 2 and second is not term)
     wait_for(lambda: "$ " in screen_text(second))
     second.feed_child(b"pwd\n")
     check("new tab starts in the current tab's folder",
           wait_for(lambda: "\n/tmp\n" in screen_text(second)), screen_text(second)[-200:])
+    win.activate_action("win.zoom-out")
+    check("zoom applies to every tab", term.get_font_scale() == second.get_font_scale() == 1.1)
+    win.activate_action("win.zoom-reset")
+    check("Ctrl+0 resets the zoom", term.get_font_scale() == 1.0)
     win.activate_action("win.close-tab")
     check("close tab goes back to the first one",
           win.tabs.get_n_pages() == 1 and win.current_terminal() is term)

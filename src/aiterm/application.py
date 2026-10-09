@@ -36,6 +36,11 @@ SHORTCUTS_HELP = [
     ("Windows", [
         ("New Window", "app.new-window"),
     ]),
+    ("View", [
+        ("Zoom In", "win.zoom-in"),
+        ("Zoom Out", "win.zoom-out"),
+        ("Reset Zoom", "win.zoom-reset"),
+    ]),
 ]
 
 
@@ -56,8 +61,8 @@ class Application(Adw.Application):
         # registering them here only shows them next to the items in menus
         for name, accel in terminal.SHORTCUTS.items():
             self.set_accels_for_action(f"term.{name}", [accel])
-        for action, accel in window.SHORTCUTS.items():
-            self.set_accels_for_action(action, [accel])
+        for action, accels in window.SHORTCUTS.items():
+            self.set_accels_for_action(action, accels.split("|"))
 
         for name, callback in {
             "new-window": self.new_window,
