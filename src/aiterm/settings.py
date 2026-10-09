@@ -1,0 +1,73 @@
+"""User preferences, stored as JSON in ~/.config/aiterm/settings.json.
+
+One shared Settings object per process. Every preference is a GObject
+property, so terminals and the preferences dialog follow changes through
+notify:: signals, and each change is saved right away.
+"""
+
+import json
+import os
+
+from gi.repository import GLib, GObject
+
+from aiterm.palettes import DEFAULT_PALETTE, PALETTES
+
+CURSOR_SHAPES = ("block", "ibeam", "underline")
+
+
+def config_dir():
+    # Tests point this somewhere else, so they never touch the user's file
+    return os.environ.get("AITERM_CONFIG_DIR") or os.path.join(GLib.get_user_config_dir(), "aiterm")
+
+
+class Settings(GObject.Object):
+    use_system_font = GObject.Property(type=bool, default=True)
+    font = GObject.Property(type=str, default="Monospace 11")
+    palette = GObject.Property(type=str, default=DEFAULT_PALETTE)
+    unlimited_scrollback = GObject.Property(type=bool, default=False)
+    scrollback_lines = GObject.Property(type=int, default=10_000, minimum=100, maximum=1_000_000)
+    cursor_shape = GObject.Property(type=str, default="block")
+    cursor_blink = GObject.Property(type=bool, default=True)
+    audible_bell = GObject.Property(type=bool, default=False)
+
+    _instance = None
+
+    @classmethod
+    def get(cls):
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+
+    def __init__(self):
+        super().__init__()
+        self.path = os.path.join(config_dir(), "settings.json")
+        self._load()
+        self.connect("notify", lambda *_: self.save())
+
+    def keys(self):
+        return [p.name.replace("-", "_") for p in self.list_properties()]
+
+    def _load(self):
+        try:
+            with open(self.path) as f:
+                data = json.load(f)
+        except (OSError, ValueError):
+            return  # first run or a broken file: defaults
+        for key in self.keys():
+            if key in data:
+                try:
+                    self.set_property(key, data[key])
+                except (TypeError, ValueError, OverflowError):
+                    pass  # a hand-edited value of the wrong type
+        if self.palette not in PALETTES:
+            self.palette = DEFAULT_PALETTE
+        if self.cursor_shape not in CURSOR_SHAPES:
+            self.cursor_shape = "block"
+
+    def save(self):
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        tmp = self.path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump({key: self.get_property(key) for key in self.keys()}, f, indent=2)
+            f.write("\n")
+        os.replace(tmp, self.path)  # never leave a half-written file

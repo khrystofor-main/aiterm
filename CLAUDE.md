@@ -20,7 +20,7 @@ AI terminal for Ubuntu: the user's shell on the left, the `agy` agent (Antigravi
 ## Working on it
 
 - Run `tests/run.sh` after any change to `bin/` or `src/`. Add a test for new behaviour.
-- GTK tests use their own non-unique application ID, so they never reach the user's running Aiterm.
+- GTK tests use their own non-unique application ID, so they never reach the user's running Aiterm, and `AITERM_CONFIG_DIR` pointing at a temp folder, so they never touch `~/.config/aiterm`.
 - The tools find the tmux server through `AITERM_SOCKET` and the user's pane through `AITERM_LEFT_PANE`; keep both working.
 - Never touch the user's live session (`tmux -L aiterm`) or their real `~/.gemini` files from tests.
 - Things only the user's machine has: `agy` with their login, the GNOME desktop, their tmux session. Cloud sessions can edit code and run `tests/run.sh` (needs tmux), but checking agy or the GUI needs a thread on the user's computer.

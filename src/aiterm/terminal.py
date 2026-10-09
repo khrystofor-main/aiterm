@@ -1,22 +1,19 @@
-"""A VTE terminal widget that runs the user's shell and follows the system look."""
+"""A VTE terminal widget that runs the user's shell and follows the system
+look and the user's preferences."""
 
 import os
 
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango, Vte
 
+from aiterm.palettes import PALETTES
+from aiterm.settings import Settings
 from aiterm.shortcuts import add_capture_shortcuts
 
-# Adwaita named colors, the same family GNOME apps use
-PALETTE = [
-    "#241f31", "#c01c28", "#2ec27e", "#e5a50a", "#1c71d8", "#9141ac", "#0ab9dc", "#c0bfbc",
-    "#5e5c64", "#ed333b", "#57e389", "#f8e45c", "#51a1ff", "#c061cb", "#4fd2fd", "#f6f5f4",
-]
-# Foreground and background match libadwaita's "view" colors, so the terminal
-# blends with the header bar in both themes
-LIGHT = ("#1e1e1e", "#ffffff")
-DARK = ("#ffffff", "#1d1d20")
-
-SCROLLBACK_LINES = 10_000
+CURSOR_SHAPES = {
+    "block": Vte.CursorShape.BLOCK,
+    "ibeam": Vte.CursorShape.IBEAM,
+    "underline": Vte.CursorShape.UNDERLINE,
+}
 
 # term.* action -> key, the same as GNOME Terminal and Ptyxis
 SHORTCUTS = {
@@ -52,18 +49,24 @@ class Terminal(Vte.Terminal):
 
     def __init__(self, cwd=None):
         super().__init__(hexpand=True, vexpand=True)
-        self.set_scrollback_lines(SCROLLBACK_LINES)
         self.set_mouse_autohide(True)
 
-        self._palette = [_rgba(c) for c in PALETTE]
-        style = Adw.StyleManager.get_default()
-        style.connect("notify::dark", lambda *_: self._apply_colors())
-        self._apply_colors()
-
+        self.settings = Settings.get()
         self._interface = self._interface_settings()
+        self._handlers = []
+        self._appliers = {
+            self._apply_colors: [(Adw.StyleManager.get_default(), "notify::dark"),
+                                 (self.settings, "notify::palette")],
+            self._apply_font: [(self.settings, "notify::use-system-font"),
+                               (self.settings, "notify::font")],
+            self._apply_behavior: [(self.settings, f"notify::{name}") for name in (
+                "unlimited-scrollback", "scrollback-lines", "cursor-shape", "cursor-blink",
+                "audible-bell")],
+        }
         if self._interface:
-            self._interface.connect("changed::monospace-font-name", lambda *_: self._apply_font())
-        self._apply_font()
+            self._appliers[self._apply_font].append((self._interface, "changed::monospace-font-name"))
+        for apply in self._appliers:
+            apply()
 
         # VTE >= 0.78 reports the OSC title as a terminal property; older
         # versions only have the (now deprecated) window-title-changed signal
@@ -242,9 +245,33 @@ class Terminal(Vte.Terminal):
     def _on_title(self, *_):
         self.emit("title-changed", self.title())
 
+    # The style manager, settings and GNOME's interface settings outlive the
+    # tab: follow them only while the terminal is in a window, so a closed tab
+    # leaves no handlers behind
+    def do_root(self):
+        Vte.Terminal.do_root(self)
+        for apply, sources in self._appliers.items():
+            apply()  # catch up on changes made while out of a window
+            for source, signal in sources:
+                self._handlers.append((source, source.connect(signal, lambda *_, f=apply: f())))
+
+    def do_unroot(self):
+        for source, handler in self._handlers:
+            source.disconnect(handler)
+        self._handlers = []
+        Vte.Terminal.do_unroot(self)
+
     def _apply_colors(self):
-        fg, bg = DARK if Adw.StyleManager.get_default().get_dark() else LIGHT
-        self.set_colors(_rgba(fg), _rgba(bg), self._palette)
+        palette = PALETTES[self.settings.palette]
+        fg, bg = palette.dark if Adw.StyleManager.get_default().get_dark() else palette.light
+        self.set_colors(_rgba(fg), _rgba(bg), [_rgba(c) for c in palette.colors])
+
+    def _apply_behavior(self):
+        s = self.settings
+        self.set_scrollback_lines(-1 if s.unlimited_scrollback else s.scrollback_lines)
+        self.set_cursor_shape(CURSOR_SHAPES.get(s.cursor_shape, Vte.CursorShape.BLOCK))
+        self.set_cursor_blink_mode(Vte.CursorBlinkMode.SYSTEM if s.cursor_blink else Vte.CursorBlinkMode.OFF)
+        self.set_audible_bell(s.audible_bell)
 
     @staticmethod
     def _interface_settings():
@@ -254,7 +281,17 @@ class Terminal(Vte.Terminal):
             return Gio.Settings.new(INTERFACE_SCHEMA)
         return None
 
+    @classmethod
+    def system_font(cls):
+        """GNOME's monospace font, e.g. "Ubuntu Sans Mono 11", or None."""
+        interface = cls._interface_settings()
+        return interface.get_string("monospace-font-name") if interface else None
+
     def _apply_font(self):
-        if self._interface:
+        if not self.settings.use_system_font:
+            name = self.settings.font
+        elif self._interface:
             name = self._interface.get_string("monospace-font-name")
-            self.set_font(Pango.FontDescription.from_string(name))
+        else:
+            name = None  # VTE's default
+        self.set_font(Pango.FontDescription.from_string(name) if name else None)
