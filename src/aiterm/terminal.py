@@ -2,7 +2,7 @@
 
 import os
 
-from gi.repository import Adw, Gdk, Gio, GLib, GObject, Pango, Vte
+from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango, Vte
 
 # Adwaita named colors, the same family GNOME apps use
 PALETTE = [
@@ -15,6 +15,13 @@ LIGHT = ("#1e1e1e", "#ffffff")
 DARK = ("#ffffff", "#1d1d20")
 
 SCROLLBACK_LINES = 10_000
+
+# term.* action -> key, the same as GNOME Terminal and Ptyxis
+SHORTCUTS = {
+    "copy": "<Control><Shift>c",
+    "paste": "<Control><Shift>v",
+    "select-all": "<Control><Shift>a",
+}
 INTERFACE_SCHEMA = "org.gnome.desktop.interface"
 
 
@@ -58,6 +65,7 @@ class Terminal(Vte.Terminal):
         else:
             self.connect("window-title-changed", self._on_title)
         self.connect("child-exited", lambda *_: self.emit("exited"))
+        self._add_clipboard_actions()
 
         self._spawn(cwd or GLib.get_home_dir())
 
@@ -70,6 +78,47 @@ class Terminal(Vte.Terminal):
         else:
             value = self.get_window_title()
         return value or ""
+
+    def _add_clipboard_actions(self):
+        """Copy / paste / select all as `term.*` actions, a right-click menu for
+        them. Middle-click pastes the primary selection, built into VTE."""
+        group = self.actions = Gio.SimpleActionGroup()
+        actions = {
+            "copy": lambda *_: self.copy_clipboard_format(Vte.Format.TEXT),
+            "paste": lambda *_: self.paste_clipboard(),
+            "select-all": lambda *_: self.select_all(),
+        }
+        for name, callback in actions.items():
+            action = Gio.SimpleAction.new(name, None)
+            action.connect("activate", callback)
+            group.add_action(action)
+        self.insert_action_group("term", group)
+
+        copy = group.lookup_action("copy")
+        copy.set_enabled(False)
+        self.connect("selection-changed", lambda *_: copy.set_enabled(self.get_has_selection()))
+
+        # VTE turns every key it gets into terminal input, so the shortcuts are
+        # caught before it, in the capture phase. They always count as handled:
+        # Ctrl+Shift+C without a selection must not reach the shell as Ctrl+C
+        keys = Gtk.ShortcutController(propagation_phase=Gtk.PropagationPhase.CAPTURE)
+        for name, trigger in SHORTCUTS.items():
+            keys.add_shortcut(Gtk.Shortcut(
+                trigger=Gtk.ShortcutTrigger.parse_string(trigger),
+                action=Gtk.CallbackAction.new(self._shortcut, name),
+            ))
+        self.add_controller(keys)
+
+        menu = Gio.Menu()
+        menu.append("Copy", "term.copy")
+        menu.append("Paste", "term.paste")
+        menu.append("Select All", "term.select-all")
+        self.set_context_menu_model(menu)
+
+    def _shortcut(self, _widget, _args, name):
+        if self.actions.get_action_enabled(name):
+            self.actions.activate_action(name, None)
+        return True
 
     def _spawn(self, cwd):
         shell = user_shell()

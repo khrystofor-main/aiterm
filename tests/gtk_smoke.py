@@ -3,7 +3,8 @@
 
 Needs a graphical session (Wayland or X11) and gir1.2-vte-3.91; exits with 77
 (skipped) without them. Runs under its own non-unique application ID, so it
-never talks to a running Aiterm. Run: tests/gtk_smoke.py
+never talks to a running Aiterm. Note: the clipboard checks overwrite the
+desktop clipboard. Run: tests/gtk_smoke.py
 """
 
 import os
@@ -23,12 +24,12 @@ try:
     gi.require_version("Gtk", "4.0")
     gi.require_version("Adw", "1")
     gi.require_version("Vte", "3.91")
-    from gi.repository import Adw, Gio, GLib, Vte
+    from gi.repository import Adw, Gio, GLib, Gtk, Vte
 except (ImportError, ValueError) as e:
     print(f"  skip GTK smoke test: {e}")
     sys.exit(SKIP)
 
-from aiterm.window import Window  # noqa: E402
+from aiterm.application import Application  # noqa: E402
 
 os.environ["SHELL"] = "/bin/bash"
 results = []
@@ -62,9 +63,40 @@ def background(term):
     return round(c.red * 255), round(c.green * 255), round(c.blue * 255)
 
 
+def terminal_shortcuts(term):
+    """{trigger: Gtk.Shortcut} from the terminal's capture-phase controllers."""
+    found = {}
+    controllers = term.observe_controllers()
+    for i in range(controllers.get_n_items()):
+        c = controllers.get_item(i)
+        if isinstance(c, Gtk.ShortcutController) and c.get_propagation_phase() == Gtk.PropagationPhase.CAPTURE:
+            for j in range(c.get_n_items()):
+                shortcut = c.get_item(j)
+                found[shortcut.get_trigger().to_string()] = shortcut
+    return found
+
+
+def clipboard_text(term):
+    """Reads the clipboard the way another app would (it is async in GTK 4)."""
+    box = []
+    clipboard = term.get_clipboard()
+    clipboard.read_text_async(None, lambda c, res: box.append(c.read_text_finish(res)))
+    wait_for(lambda: box, 3)
+    return box[0] if box else None
+
+
 def run(app):
-    win = Window(application=app)
-    win.present()
+    try:
+        steps(app)
+    except Exception:
+        results.append(False)
+        raise
+    finally:
+        app.quit()
+
+
+def steps(app):
+    win = app.get_active_window()
     term = win.current_terminal()
     style = Adw.StyleManager.get_default()
 
@@ -77,9 +109,11 @@ def run(app):
     check("bash runs commands", ok, screen_text(term)[-300:])
 
     # sleep keeps the next prompt from putting bash's own title back
-    term.feed_child(b"printf '\\033]0;smoke-title\\007'; sleep 3\n")
+    term.feed_child(b"printf '\\033]0;smoke-title\\007'; sleep 1\n")
     ok = wait_for(lambda: win.header_title.get_title() == "smoke-title")
     check("header shows the terminal title", ok, f"title: {win.header_title.get_title()!r}")
+    # Back at the prompt once bash puts its own title back
+    wait_for(lambda: win.header_title.get_title() != "smoke-title")
 
     style.set_color_scheme(Adw.ColorScheme.FORCE_LIGHT)
     wait_for(lambda: not style.get_dark(), 2)
@@ -90,15 +124,39 @@ def run(app):
     check("terminal follows the light/dark theme", light == (255, 255, 255) and dark != light,
           f"light {light}, dark {dark}")
 
+    check("copy is disabled without a selection",
+          not term.actions.get_action_enabled("copy"))
+    keys = terminal_shortcuts(term)
+    ctrl_shift = {k: Gtk.ShortcutTrigger.parse_string(f"<Control><Shift>{k}").to_string() for k in "cva"}
+    check("Ctrl+Shift+C/V/A are caught before VTE", set(ctrl_shift.values()) <= set(keys), str(list(keys)))
+    copy_key = keys.get(ctrl_shift["c"])
+    handled = copy_key and copy_key.get_action().activate(Gtk.ShortcutActionFlags(0), term, None)
+    check("Ctrl+Shift+C without a selection is swallowed, not sent as Ctrl+C", handled)
+    term.activate_action("term.select-all")
+    term.activate_action("term.copy")
+    copied = clipboard_text(term)
+    check("select all + copy puts the screen on the clipboard", copied and "aiterm-42" in copied,
+          f"clipboard: {copied!r}"[:200])
+
+    term.get_clipboard().set("echo pasted-$((40+2))")
+    term.activate_action("term.paste")
+    # Paste reads the clipboard asynchronously; press Enter once it is typed
+    wait_for(lambda: "echo pasted-" in screen_text(term))
+    term.feed_child(b"\n")
+    check("paste types the clipboard into the shell",
+          wait_for(lambda: "pasted-42" in screen_text(term)))
+    check("right-click menu has Copy, Paste, Select All",
+          term.get_context_menu_model().get_n_items() == 3)
+
     closed = []
     win.connect("close-request", lambda *_: closed.append(True) and False)
     term.feed_child(b"exit\n")
     check("window closes when the shell exits", wait_for(lambda: closed))
-    app.quit()
 
 
-app = Adw.Application(application_id="io.github.khrystofor_main.Aiterm.Test",
-                      flags=Gio.ApplicationFlags.NON_UNIQUE)
-app.connect("activate", run)
+app = Application(application_id="io.github.khrystofor_main.Aiterm.Test",
+                  flags=Gio.ApplicationFlags.NON_UNIQUE)
+# The handler runs before Application.do_activate opens the window
+app.connect("activate", lambda app: GLib.idle_add(run, app))
 app.run([])
 sys.exit(0 if results and all(results) else 1)
