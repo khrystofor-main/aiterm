@@ -8,6 +8,13 @@
 # Commands are split on the bash prompt "user@host:path$ " (default Ubuntu PS1).
 set -euo pipefail
 
+# Started by the GTK app (AITERM_WINDOW): talk to it over D-Bus instead of
+# tmux, same arguments and exit codes (src/aiterm/tools.py)
+if [ -n "${AITERM_WINDOW:-}" ]; then
+  ROOT=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
+  PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m aiterm.tools left "$@"
+fi
+
 if [ -z "${AITERM_LEFT_PANE:-}" ]; then
   echo "agy is not running inside aiterm: there is no user terminal. Ask the user to paste the output into the chat." >&2
   exit 1

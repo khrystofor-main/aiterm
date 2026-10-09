@@ -17,7 +17,7 @@ import subprocess
 
 from gi.repository import Gio, GLib, Vte
 
-INTERFACE = "io.github.khrystofor_main.Aiterm.Terminal"
+from aiterm import TERMINAL_INTERFACE as INTERFACE
 ERROR_NO_WINDOW = "io.github.khrystofor_main.Aiterm.Error.NoWindow"
 
 XML = f"""

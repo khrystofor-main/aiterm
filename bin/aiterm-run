@@ -9,6 +9,13 @@
 # (the user is typing or a program is running), 124 still running after the timeout.
 set -euo pipefail
 
+# Started by the GTK app (AITERM_WINDOW): talk to it over D-Bus instead of
+# tmux, same arguments and exit codes (src/aiterm/tools.py)
+if [ -n "${AITERM_WINDOW:-}" ]; then
+  ROOT=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
+  PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m aiterm.tools run "$@"
+fi
+
 usage() {
   echo "Usage: aiterm-run [-t SECONDS] 'command'  |  aiterm-run [-t SECONDS] -w" >&2
   exit 2

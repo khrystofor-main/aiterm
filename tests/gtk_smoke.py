@@ -207,6 +207,39 @@ def steps(app):
     check("an unknown window is an error", isinstance(result, GLib.Error) and "NoWindow" in result.message,
           str(result))
 
+    # aiterm-left / aiterm-run as the agent runs them (separate processes)
+    def run_tool(*argv, seconds=20):
+        launcher = Gio.SubprocessLauncher.new(Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_MERGE)
+        launcher.unsetenv("AITERM_LEFT_PANE")
+        launcher.setenv("AITERM_WINDOW", str(win.get_id()), True)
+        launcher.setenv("AITERM_BUS_NAME", app.get_dbus_connection().get_unique_name(), True)
+        launcher.setenv("AITERM_OBJECT_PATH", app.get_dbus_object_path(), True)
+        process = launcher.spawnv([os.path.join(ROOT, "bin", argv[0]), *argv[1:]])
+        box = []
+        process.communicate_utf8_async(None, None, lambda p, res: box.append(p.communicate_utf8_finish(res)))
+        wait_for(lambda: box, seconds)
+        return (process.get_exit_status(), box[0][1]) if box else (None, "no reply")
+
+    home = os.path.expanduser("~")
+    result = run_tool("aiterm-run", "echo tool-$((3*3))")
+    check("aiterm-run runs a command through the app",
+          result == (0, f"[terminal folder: {home}]\n$ echo tool-$((3*3))\ntool-9\n"), repr(result))
+    result = run_tool("aiterm-run", "ls /no-such-dir")
+    check("aiterm-run shows a failed command's exit code",
+          result[0] == 0 and "No such file" in result[1] and result[1].endswith("[exit code 2]\n"), repr(result))
+    result = run_tool("aiterm-left", "2")
+    check("aiterm-left N shows the last commands",
+          "$ echo tool-$((3*3))\ntool-9\n$ ls /no-such-dir" in result[1], repr(result))
+    result = run_tool("aiterm-left", "all")
+    check("aiterm-left all shows the whole terminal", result[0] == 0 and "tool-9" in result[1], repr(result)[:200])
+    term.feed_child(b"sleep 2\n")
+    wait_for(lambda: term.running_program() == "sleep")
+    result = run_tool("aiterm-run", "echo no")
+    check("aiterm-run refuses while a program runs (code 3)", result[0] == 3 and "«sleep»" in result[1],
+          repr(result))
+    result = run_tool("aiterm-run", "-w")
+    check("aiterm-run -w waits for it", result[0] == 0 and "$ sleep 2" in result[1], repr(result))
+
     term.feed_child(b"seq 300\n")
     wait_for(lambda: last().text == "seq 300")
     seq = last()
