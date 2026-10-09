@@ -7,8 +7,11 @@ never talks to a running Aiterm. Note: the clipboard checks overwrite the
 desktop clipboard. Run: tests/gtk_smoke.py
 """
 
+import json
 import os
+import shutil
 import sys
+import tempfile
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -24,14 +27,20 @@ try:
     gi.require_version("Gtk", "4.0")
     gi.require_version("Adw", "1")
     gi.require_version("Vte", "3.91")
-    from gi.repository import Adw, Gio, GLib, Gtk, Vte
+    from gi.repository import Adw, Gio, GLib, Gtk, Pango, Vte
 except (ImportError, ValueError) as e:
     print(f"  skip GTK smoke test: {e}")
     sys.exit(SKIP)
 
 from aiterm.application import Application  # noqa: E402
+from aiterm.palettes import PALETTES  # noqa: E402
+from aiterm.preferences import PreferencesDialog  # noqa: E402
+from aiterm.settings import Settings  # noqa: E402
 
 os.environ["SHELL"] = "/bin/bash"
+# Preferences go to a throwaway folder, never the user's ~/.config/aiterm
+CONFIG_DIR = tempfile.mkdtemp(prefix="aiterm-test-")
+os.environ["AITERM_CONFIG_DIR"] = CONFIG_DIR
 results = []
 
 
@@ -127,6 +136,35 @@ def steps(app):
     dark = background(term)
     check("terminal follows the light/dark theme", light == (255, 255, 255) and dark != light,
           f"light {light}, dark {dark}")
+
+    settings = Settings.get()
+    settings.palette = "Solarized"
+    check("palette applies to open terminals", background(term) == (0, 43, 54), f"{background(term)}")
+    settings.unlimited_scrollback = True
+    # VTE reports "unlimited" as the largest possible number
+    check("unlimited scrollback", term.get_scrollback_lines() > 1_000_000_000, f"{term.get_scrollback_lines()}")
+    settings.cursor_shape = "ibeam"
+    check("cursor shape", term.get_cursor_shape() == Vte.CursorShape.IBEAM)
+    settings.use_system_font = False
+    settings.font = "Monospace 14"
+    check("custom font", term.get_font().get_size() == 14 * Pango.SCALE, term.get_font().to_string())
+    with open(os.path.join(CONFIG_DIR, "settings.json")) as f:
+        saved = json.load(f)
+    check("preferences are saved", saved.get("palette") == "Solarized" and saved.get("font") == "Monospace 14",
+          str(saved))
+    check("preferences load back", Settings().cursor_shape == "ibeam")
+
+    app.activate_action("preferences", None)
+    dialog = win.get_visible_dialog()
+    check("main menu opens preferences", isinstance(dialog, PreferencesDialog))
+    if dialog:
+        dialog.palette_row.set_selected(list(PALETTES).index("Tango"))
+        check("the dialog changes the palette", settings.palette == "Tango")
+        dialog.system_font_row.set_active(True)
+        check("the dialog switches back to the system font", settings.use_system_font)
+        dialog.force_close()
+    for key in settings.keys():  # back to defaults for the rest of the test
+        settings.set_property(key, settings.find_property(key.replace("_", "-")).get_default_value())
 
     check("copy is disabled without a selection",
           not term.actions.get_action_enabled("copy"))
@@ -230,6 +268,7 @@ def steps(app):
     win.activate_action("win.close-tab")
     check("close tab goes back to the first one",
           win.tabs.get_n_pages() == 1 and win.current_terminal() is term)
+    check("a closed tab stops following the preferences", second._handlers == [])
 
     app.activate_action("new-window", None)
     other = app.get_active_window()
@@ -250,15 +289,13 @@ def steps(app):
     dialog = win.get_visible_dialog()
     check("closing a busy tab asks first", dialog is not None and win.tabs.get_n_pages() == 1)
     if dialog:
-        dialog.emit("response", "cancel")
-        dialog.force_close()
+        dialog.force_close()  # = Cancel
     check("Cancel keeps the tab", win.tabs.get_n_pages() == 1)
     win.close()
     dialog = win.get_visible_dialog()
     check("closing a window with a busy tab asks first", dialog is not None and win in app.get_windows())
     if dialog:
-        dialog.emit("response", "cancel")
-        dialog.force_close()
+        dialog.force_close()  # = Cancel
     win.activate_action("win.new-tab")
     busy = win.current_terminal()
     wait_for(lambda: "$ " in screen_text(busy))
@@ -268,7 +305,7 @@ def steps(app):
     dialog = win.get_visible_dialog()
     if dialog:
         dialog.emit("response", "close")
-        dialog.force_close()
+        dialog.force_close()  # reports "cancel" too; must be ignored
     check("Close Tab in the dialog closes the busy tab",
           wait_for(lambda: win.tabs.get_n_pages() == 1 and win.current_terminal() is term, 3))
     term.feed_child(b"\x03")  # Ctrl+C
@@ -292,4 +329,5 @@ app = Application(application_id="io.github.khrystofor_main.Aiterm.Test",
 # The handler runs before Application.do_activate opens the window
 app.connect("activate", lambda app: GLib.idle_add(run, app))
 app.run([])
+shutil.rmtree(CONFIG_DIR, ignore_errors=True)
 sys.exit(0 if results and all(results) else 1)

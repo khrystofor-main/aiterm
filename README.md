@@ -76,7 +76,7 @@ sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-vte-3.91
 ./install.sh   # adds "Aiterm" to the applications menu
 ```
 
-Or run it straight from the repo: `bin/aiterm-gtk`. The plan and feature list are in [docs/v0.2-plan.md](docs/v0.2-plan.md).
+Or run it straight from the repo: `bin/aiterm-gtk`. Preferences (Ctrl+,) are saved to `~/.config/aiterm/settings.json`. The plan and feature list are in [docs/v0.2-plan.md](docs/v0.2-plan.md).
 
 ## Tests
 

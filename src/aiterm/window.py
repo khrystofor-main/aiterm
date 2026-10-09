@@ -15,6 +15,7 @@ SHORTCUTS = {
     "win.close-tab": "<Control><Shift>w",
     "app.new-window": "<Control><Shift>n",
     "win.find": "<Control><Shift>f",
+    "app.preferences": "<Control>comma",
     "win.zoom-in": "<Control>plus|<Control>equal|<Control>KP_Add",
     "win.zoom-out": "<Control>minus|<Control>KP_Subtract",
     "win.zoom-reset": "<Control>0|<Control>KP_0",
@@ -31,9 +32,17 @@ TAB_VIEW_SHORTCUTS = Adw.TabViewShortcuts.ALL_SHORTCUTS & ~(
 )
 
 
-def confirm_dialog(heading, body, close_label):
-    """Cancel / <close_label>; responds "close" or "cancel"."""
+def confirm_dialog(heading, body, close_label, on_answer):
+    """Cancel / <close_label>; calls on_answer(True) for close, once."""
     dialog = Adw.AlertDialog(heading=heading, body=body)
+    answered = []
+
+    def on_response(_dialog, response):
+        if not answered:  # closing the dialog can report a second "cancel"
+            answered.append(response)
+            on_answer(response == "close")
+
+    dialog.connect("response", on_response)
     dialog.add_response("cancel", "Cancel")
     dialog.add_response("close", close_label)
     dialog.set_response_appearance("close", Adw.ResponseAppearance.DESTRUCTIVE)
@@ -49,6 +58,7 @@ def main_menu():
     windows.append("New Tab", "win.new-tab")
     menu.append_section(None, windows)
     app = Gio.Menu()
+    app.append("Preferences", "app.preferences")
     app.append("Keyboard Shortcuts", "app.shortcuts")
     app.append("About Aiterm", "app.about")
     menu.append_section(None, app)
@@ -166,9 +176,8 @@ class Window(Adw.ApplicationWindow):
             return True  # handled
         dialog = confirm_dialog(
             "Close Tab?", f"“{program}” is still running in this tab. Closing the tab stops it.",
-            "Close Tab",
+            "Close Tab", lambda confirmed: self._finish_close_page(page, confirmed),
         )
-        dialog.connect("response", lambda _d, response: self._finish_close_page(page, response == "close"))
         dialog.present(self)
         return True
 
@@ -187,9 +196,8 @@ class Window(Adw.ApplicationWindow):
         names = ", ".join(f"“{p}”" for p in running)
         dialog = confirm_dialog(
             "Close Window?", f"Still running: {names}. Closing the window stops them.",
-            "Close Window",
+            "Close Window", self._confirm_close_window,
         )
-        dialog.connect("response", lambda _d, response: self._confirm_close_window(response == "close"))
         dialog.present(self)
         return True  # keep the window open for now
 

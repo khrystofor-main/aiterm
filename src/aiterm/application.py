@@ -10,6 +10,7 @@ from gi.repository import Adw, Gdk, Gio, Gtk  # noqa: E402
 
 from aiterm import APP_ID, VERSION  # noqa: E402
 from aiterm import terminal, window  # noqa: E402
+from aiterm.preferences import PreferencesDialog  # noqa: E402
 from aiterm.window import Window  # noqa: E402
 
 # Keeps text off the window edges
@@ -36,6 +37,7 @@ SHORTCUTS_HELP = [
     ]),
     ("Windows", [
         ("New Window", "app.new-window"),
+        ("Preferences", "app.preferences"),
     ]),
     ("View", [
         ("Zoom In", "win.zoom-in"),
@@ -67,6 +69,7 @@ class Application(Adw.Application):
 
         for name, callback in {
             "new-window": self.new_window,
+            "preferences": self.show_preferences,
             "shortcuts": self.show_shortcuts,
             "about": self.show_about,
         }.items():
@@ -84,6 +87,9 @@ class Application(Adw.Application):
         current = self.get_active_window()
         terminal = current.current_terminal() if current else None
         Window(application=self, cwd=terminal.current_directory() if terminal else None).present()
+
+    def show_preferences(self):
+        PreferencesDialog().present(self.get_active_window())
 
     def show_shortcuts(self):
         dialog = Adw.ShortcutsDialog()
