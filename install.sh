@@ -2,8 +2,9 @@
 # install.sh — installs aiterm for the current user (no sudo needed).
 #   - links bin/* into ~/.local/bin
 #   - adds Aiterm to the applications menu
-#   - adds the agent rules to ~/.gemini/GEMINI.md (between aiterm markers)
-#   - lets agy run aiterm-left / aiterm-run without asking every time
+#   - links the agy plugin (agy-plugin/: the MCP server and its rules) into
+#     ~/.gemini/config/plugins/aiterm
+#   - lets agy use the read-only terminal tools without asking every time
 # Running it again updates everything in place.
 set -euo pipefail
 
@@ -11,7 +12,12 @@ ROOT=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
 BIN="$HOME/.local/bin"
 APPS="$HOME/.local/share/applications"
 RULES="$HOME/.gemini/GEMINI.md"
+PLUGIN="$HOME/.gemini/config/plugins/aiterm"
 AGY_SETTINGS="$HOME/.gemini/antigravity-cli/settings.json"
+# The tools that only read; run_command follows agy's own tool permission
+ALLOW='["mcp(aiterm_terminal/read_terminal)", "mcp(aiterm_terminal/get_cwd)", "mcp(aiterm_terminal/wait_for_command)"]'
+# What versions before the MCP server allowed
+OLD_ALLOW='["command(aiterm-left)", "command(aiterm-run)"]'
 BEGIN='<!-- aiterm:begin -->'
 END='<!-- aiterm:end -->'
 
@@ -55,39 +61,45 @@ sed "s|@BIN@|$BIN|" "$ROOT/data/$DESKTOP.in" > "$APPS/$DESKTOP"
 update-desktop-database "$APPS" 2>/dev/null || true
 echo "✓ Launcher: Aiterm ($APPS/$DESKTOP)"
 
-# 3. Agent rules: replace our block, keep everything else in the file
-mkdir -p "$(dirname "$RULES")"
-touch "$RULES"
-tmp=$(mktemp)
-awk -v b="$BEGIN" -v e="$END" '$0 == b {skip=1} !skip {print} $0 == e {skip=0}' "$RULES" > "$tmp"
-# No more than one blank line at the end before our block
-sed -i -e :a -e '/^\n*$/{$d;N;ba' -e '}' "$tmp"
-{
-  [ -s "$tmp" ] && echo
-  echo "$BEGIN"
-  cat "$ROOT/rules/aiterm.md"
-  echo "$END"
-} >> "$tmp"
-mv "$tmp" "$RULES"
-echo "✓ Agent rules in $RULES"
+# 3. agy plugin: the MCP server and the rules that go with it, linked so that
+# git pull updates them
+mkdir -p "$(dirname "$PLUGIN")"
+if [ -e "$PLUGIN" ] && [ "$(readlink -f "$PLUGIN")" != "$ROOT/agy-plugin" ]; then
+  mv "$PLUGIN" "$PLUGIN.bak.$(date +%s)"
+  echo "Backed up the old $PLUGIN"
+fi
+ln -sfn "$ROOT/agy-plugin" "$PLUGIN"
+echo "✓ agy plugin: $PLUGIN (tools: read_terminal, run_command, wait_for_command, get_cwd)"
 
-# 4. agy permissions: aiterm-left / aiterm-run run without a prompt
+# Versions before the plugin kept the rules in GEMINI.md: remove that block,
+# keep everything else in the file
+if [ -f "$RULES" ] && grep -qxF "$BEGIN" "$RULES"; then
+  tmp=$(mktemp)
+  awk -v b="$BEGIN" -v e="$END" '$0 == b {skip=1} !skip {print} $0 == e {skip=0}' "$RULES" > "$tmp"
+  # Drop the blank lines left at the end
+  sed -i -e :a -e '/^\n*$/{$d;N;ba' -e '}' "$tmp"
+  cat "$tmp" > "$RULES" && rm "$tmp"
+  echo "✓ Removed the old aiterm rules from $RULES (they come with the plugin now)"
+fi
+
+# 4. agy permissions: the read-only tools run without a prompt
 mkdir -p "$(dirname "$AGY_SETTINGS")"
 [ -s "$AGY_SETTINGS" ] || echo '{}' > "$AGY_SETTINGS"
 tmp=$(mktemp)
-jq '.permissions.allow = ((.permissions.allow // []) + ["command(aiterm-left)", "command(aiterm-run)"] | unique)' \
-  "$AGY_SETTINGS" > "$tmp" && mv "$tmp" "$AGY_SETTINGS"
-echo "✓ agy may run aiterm-left and aiterm-run without asking ($AGY_SETTINGS)"
+jq --argjson allow "$ALLOW" --argjson old "$OLD_ALLOW" \
+  '.permissions.allow = ((.permissions.allow // []) - $old + $allow | unique)' \
+  "$AGY_SETTINGS" > "$tmp" && cat "$tmp" > "$AGY_SETTINGS" && rm "$tmp"
+echo "✓ agy may read the terminal without asking ($AGY_SETTINGS)"
 
 cat <<'EOF'
 
 Done. Start it with `aiterm` or from the menu (Aiterm); Alt+Enter opens the agent.
+Restart agy if it is running, so it loads the plugin.
 
 Optional:
-  - agy only auto-approves simple commands, so it may still ask about
-    aiterm-run 'command'. To stop the prompts, set Tool Permission to
-    always-proceed in agy's /config. sudo stays protected: aiterm-run makes
+  - agy asks before every run_command. To stop the prompts, set Tool
+    Permission to always-proceed in agy's /config. sudo stays protected:
     you type your password for every sudo command the agent runs.
   - Want answers in your language? Add a line like "Always reply in Russian."
-    to ~/.gemini/GEMINI.md outside the aiterm markers.
+    to ~/.gemini/GEMINI.md.
 EOF

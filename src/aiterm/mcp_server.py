@@ -13,8 +13,10 @@ it dependency-free next to the system Python. Try it by hand:
 """
 
 import json
+import os
 import sys
 import threading
+import time
 
 from aiterm import VERSION
 from aiterm.client import NotInside, TerminalClient, Unreachable, format_command
@@ -179,9 +181,10 @@ def _result(result):
 
 
 class Server:
-    def __init__(self, client, out=sys.stdout):
+    def __init__(self, client, out=sys.stdout, trace=None):
         self.client = client  # None outside aiterm
         self.out = out
+        self.trace = trace  # a file to log tool calls to (AITERM_MCP_TRACE), for evals
         self.lock = threading.Lock()
         self.calls = []
 
@@ -255,11 +258,20 @@ class Server:
         unknown = set(arguments) - set(SCHEMAS[name]["properties"])
         if unknown:
             return _error(f"Unexpected arguments for {name}: {', '.join(sorted(unknown))}")
+        started = time.monotonic()
         try:
             text, structured = HANDLERS[name](self.client, **arguments)
+            result = {"content": [{"type": "text", "text": text}], "structuredContent": structured,
+                      "isError": False}
         except (ToolError, Unreachable) as error:
-            return _error(str(error))
-        return {"content": [{"type": "text", "text": text}], "structuredContent": structured, "isError": False}
+            result = _error(str(error))
+        if self.trace:
+            with self.lock:
+                self.trace.write(json.dumps({"tool": name, "arguments": arguments, "result": result,
+                                             "seconds": round(time.monotonic() - started, 2)},
+                                            ensure_ascii=False) + "\n")
+                self.trace.flush()
+        return result
 
 
 def _error(text):
@@ -274,7 +286,8 @@ def main():
     # Line-buffered UTF-8 whatever the locale; stdout carries only protocol
     sys.stdin.reconfigure(encoding="utf-8")
     sys.stdout.reconfigure(encoding="utf-8")
-    Server(client).serve(sys.stdin)
+    trace = os.environ.get("AITERM_MCP_TRACE")
+    Server(client, trace=open(trace, "a", encoding="utf-8") if trace else None).serve(sys.stdin)
 
 
 if __name__ == "__main__":

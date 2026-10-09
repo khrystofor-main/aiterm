@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    // bin/aiterm-mcp; install.sh links it into ~/.local/bin, and the agent
+    // panel puts the repository's bin/ first in agy's PATH. agy prefixes the
+    // plugin's name: the server is aiterm_terminal, as in permission rules
+    // like mcp(aiterm_terminal/read_terminal)
+    "terminal": {
+      "command": "aiterm-mcp",
+      // run_command waits for the command itself (up to an hour)
+      "timeoutSeconds": 3700
+    }
+  }
+}

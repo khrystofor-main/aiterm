@@ -1,0 +1,12 @@
+{
+  // agy loads this plugin from ~/.gemini/config/plugins/aiterm, a link to
+  // this folder that install.sh makes
+  "name": "aiterm",
+  "displayName": "aiterm",
+  "description": "Gives the agent in the aiterm panel the user's terminal as tools: read what happened, run commands in plain sight.",
+  "suggestedPrompts": [
+    "Why did my last command fail?",
+    "What is using the most disk space in this folder?",
+    "Install htop"
+  ]
+}
