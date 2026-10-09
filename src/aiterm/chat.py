@@ -38,10 +38,15 @@ class AgentProcess(GObject.Object):
         "exited": (GObject.SignalFlags.RUN_FIRST, None, (bool, str)),
     }
 
-    def __init__(self, argv, cwd, env):
+    def __init__(self, argv, cwd, env, continue_last=False):
+        """`continue_last`: the first start continues the folder's most recent
+        conversation (agy --continue), the one the Terminal view just had."""
         super().__init__()
         self.argv, self.cwd, self.env = argv, cwd, env
         self.conversation_id = None
+        self.continue_last = continue_last
+        self.switching = False  # stopped because the panel switches views
+        self.started_argv = None  # the last argv agy ran with (tests read it)
         self.busy = False  # a turn is running
         self._process = None
         self._stopping = False
@@ -69,6 +74,10 @@ class AgentProcess(GObject.Object):
         argv = list(self.argv)
         if self.conversation_id and "--conversation" not in argv:
             argv += ["--conversation", self.conversation_id]
+        elif self.continue_last:
+            argv.append("--continue")
+        self.continue_last = False
+        self.started_argv = argv
         launcher = Gio.SubprocessLauncher.new(
             Gio.SubprocessFlags.STDIN_PIPE | Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE)
         launcher.set_cwd(self.cwd or GLib.get_home_dir())

@@ -57,6 +57,12 @@ class AgentPanel(Adw.Bin):
         self.terminal = None  # the terminal view's agy
         self.chat = None  # the chat view
         self.setup_declined = False
+        # Switching the view keeps the conversation: the folder agy runs in,
+        # and either a conversation id (from the chat) or "continue" (the
+        # Terminal view's conversation is the folder's most recent one)
+        self.agent_cwd = None
+        self.resume = None
+        self.last_chat = None  # the chat view to show again, with its messages
         handler = Settings.get().connect("notify::agent-view", lambda *_: self.restart())
         window.connect("destroy", lambda *_: self._on_window_destroyed(handler))
 
@@ -78,20 +84,43 @@ class AgentPanel(Adw.Bin):
         if not self.setup_declined and needs_setup():
             return self._offer_setup()
         user_terminal = self.window.current_terminal()
-        cwd = user_terminal.current_directory() if user_terminal else None
+        if self.agent_cwd is None or self.resume is None:
+            self.agent_cwd = user_terminal.current_directory() if user_terminal else None
+        cwd = self.agent_cwd
         if chat:
-            self.chat = ChatView(AgentProcess(argv, cwd, self._environment()), self.window.approval)
-            self.set_child(self.chat)
+            self._start_chat(argv, cwd)
             return
+        if self.resume and self.resume != "continue" and os.path.basename(argv[0]) == "agy":
+            argv = argv + ["--conversation", self.resume]
         self.terminal = Terminal(cwd=cwd, argv=argv, env=self._environment())
         self.terminal.connect("exited", lambda *_: self._on_exited())
         self.set_child(Gtk.ScrolledWindow(child=self.terminal, hscrollbar_policy=Gtk.PolicyType.NEVER))
 
+    def _start_chat(self, argv, cwd):
+        chat = self.last_chat
+        if chat and self.resume == chat.process.conversation_id:
+            # Back from the Terminal view, which went on with this conversation
+            chat.add_note("Back from the Terminal view: the same conversation, but what was said there "
+                          "is shown only there.")
+        elif self.resume == "continue":
+            chat = ChatView(AgentProcess(argv, cwd, self._environment(), continue_last=True),
+                            self.window.approval)
+            chat.add_note("Continuing the conversation from the Terminal view; its earlier messages "
+                          "are shown there.")
+        else:
+            chat = ChatView(AgentProcess(argv, cwd, self._environment()), self.window.approval)
+        self.chat = self.last_chat = chat
+        self.set_child(chat)
+
     def restart(self):
         """Switching the view: the old agent goes, the new one starts if the
-        panel is open."""
+        panel is open, in the same conversation."""
         if self.chat:
+            self.chat.process.switching = True  # no "Stopped." in the chat
             self.chat.process.stop()
+            self.resume = self.chat.process.conversation_id or self.resume
+        elif self.terminal and self.resume in (None, "continue"):
+            self.resume = "continue"  # (started with --conversation: keeps that id)
         self.terminal = self.chat = None
         self.set_child(None)  # closing the terminal hangs up agy
         if self.get_visible():

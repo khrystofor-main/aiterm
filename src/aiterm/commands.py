@@ -35,6 +35,8 @@ FINISHED = Vte.TERMPROP_SHELL_PRECMD
 EXIT_CODE = Vte.TERMPROP_SHELL_POSTEXEC
 
 MAX_COMMANDS = 500
+# How far above its prompt a command is looked for when the rows were renumbered
+SEARCH_ROWS = 2000
 # How long an ended command waits for its prompt before it is logged without one
 PROMPT_WAIT_MS = 1000
 
@@ -96,6 +98,8 @@ class CommandLog:
         if self._prompt is None or self._running is not None:
             return None
         _, row = self.terminal.get_cursor_position()
+        if self._prompt.input_row > row:
+            return None  # rows renumbered since that prompt (see _finish)
         text, _ = self.terminal.get_text_range_format(
             Vte.Format.TEXT, self._prompt.input_row, self._prompt.input_col, row, 10_000)
         return (text or "").strip()
@@ -180,7 +184,17 @@ class CommandLog:
         command = Command(text or "", "", self._exit_code, seconds)
         self._text, self._exit_code = None, 0
         start, end = self._prompt, batch.prompt
-        if start and end:
+        if start and end and start.row > end.row and text:
+            # The rows were renumbered since the command's prompt (`clear`
+            # erased the scrollback, a smaller scrollback was set): find the
+            # command just above the new prompt instead
+            first = max(int(self.terminal.get_vadjustment().get_lower()), end.row - SEARCH_ROWS)
+            above, _ = self.terminal.get_text_range_format(Vte.Format.TEXT, first, 0, end.row, 0)
+            at = (above or "").rfind(text)
+            if at >= 0:
+                row = first + above[:at].count("\n")
+                start = _Prompt(row, row, len(above[:at].rsplit("\n", 1)[-1]))
+        if start and end and start.row <= end.row:
             command.start_row, command.end_row = start.row, end.row
             # Every prompt starts at column 0 (OSC 133;L), so the command and
             # its output run up to the start of the next prompt's first row
