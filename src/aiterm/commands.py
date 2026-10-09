@@ -184,7 +184,18 @@ class CommandLog:
             # its output run up to the start of the next prompt's first row
             block, _ = self.terminal.get_text_range_format(
                 Vte.Format.TEXT, start.input_row, start.input_col, end.row, 0)
-            command.text, command.output = split_command(block or "", text)
+            block = block or ""
+            if text and not block.startswith(text):
+                # Text typed ahead (by the agent, right after the previous
+                # command) can be echoed before the prompt mark is handled,
+                # which then sits a few columns too far: find the command
+                # on the prompt's line instead
+                line, _ = self.terminal.get_text_range_format(
+                    Vte.Format.TEXT, start.input_row, 0, end.row, 0)
+                at = (line or "").find(text)
+                if at >= 0:
+                    block = line[at:]
+            command.text, command.output = split_command(block, text)
         self.commands.append(command)
         del self.commands[:-MAX_COMMANDS]
         self.on_finished(command)

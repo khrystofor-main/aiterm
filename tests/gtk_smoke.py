@@ -626,7 +626,8 @@ def steps(app):
     check("Run in the chat runs it in the user's terminal",
           wait_for(lambda: last().text == "echo chat-$((5*5))", 20) and last().output == "chat-25",
           f"{last()!r} {rows()[0].status.get_label()!r} {rows()[0].output.get_label()!r} "
-          f"typed={log.typed_text()!r} running={term.running_program()!r}")
+          f"typed={log.typed_text()!r} running={term.running_program()!r} "
+          f"current={win.current_terminal() is term} screen={screen_text(term)[-300:]!r}")
     check("…and the block shows the output",
           wait_for(lambda: rows()[0].output.get_label() == "chat-25") and not rows()[0].buttons.get_visible(),
           rows()[0].output.get_label())
