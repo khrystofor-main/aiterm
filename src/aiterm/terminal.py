@@ -2,7 +2,7 @@
 
 import os
 
-from gi.repository import Adw, Gdk, Gio, GLib, GObject, Pango, Vte
+from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango, Vte
 
 from aiterm.shortcuts import add_capture_shortcuts
 
@@ -25,6 +25,11 @@ SHORTCUTS = {
     "select-all": "<Control><Shift>a",
 }
 INTERFACE_SCHEMA = "org.gnome.desktop.interface"
+
+# Plain-text links: a scheme, then anything up to whitespace or quotes, but
+# not trailing punctuation ("see https://example.com." ends before the dot)
+URL_PATTERN = r"""(?:https?|ftp|file)://[^\s<>"'`]*[^\s<>"'`.,;:!?)\]}]"""
+PCRE2_MULTILINE = 0x00000400  # VTE requires it for match regexes
 
 
 def _rgba(spec):
@@ -68,6 +73,7 @@ class Terminal(Vte.Terminal):
             self.connect("window-title-changed", self._on_title)
         self.connect("child-exited", self._on_child_exited)
         self._add_clipboard_actions()
+        self._add_links()
 
         self._pid = None
         self._spawn(cwd or GLib.get_home_dir())
@@ -108,11 +114,69 @@ class Terminal(Vte.Terminal):
             for name, trigger in SHORTCUTS.items()
         })
 
+
+    def _add_links(self):
+        """Ctrl+click opens a link: plain-text URLs and OSC 8 hyperlinks
+        (ls --hyperlink, gcc errors, systemd). Links also get Open / Copy
+        Link in the right-click menu."""
+        self.set_allow_hyperlink(True)
+        tag = self.match_add_regex(Vte.Regex.new_for_match(URL_PATTERN, -1, PCRE2_MULTILINE), 0)
+        self.match_set_cursor_name(tag, "pointer")
+
+        # Capture phase: before VTE starts a selection with this click
+        click = Gtk.GestureClick(button=1, propagation_phase=Gtk.PropagationPhase.CAPTURE)
+        click.connect("pressed", self._on_click)
+        self.add_controller(click)
+
+        self._menu_link = None
+        for name, callback in {
+            "open-link": lambda *_: self.open_link(self._menu_link),
+            "copy-link": lambda *_: self.get_clipboard().set(self._menu_link),
+        }.items():
+            action = Gio.SimpleAction.new(name, None)
+            action.connect("activate", callback)
+            self.actions.add_action(action)
+
+        self.set_context_menu_model(self.context_menu_at(None, None))
+        self.connect("setup-context-menu", self._on_setup_context_menu)
+
+    def link_at(self, x, y):
+        """The link under widget coordinates x, y, or None."""
+        return self.check_hyperlink_at(x, y) or self.check_match_at(x, y)[0]
+
+    def open_link(self, uri):
+        if uri:
+            Gtk.UriLauncher.new(uri).launch(self.get_root(), None, None, None)
+
+    def context_menu_at(self, x, y):
+        """The right-click menu, with link items when (x, y) is on a link."""
+        self._menu_link = self.link_at(x, y) if x is not None else None
         menu = Gio.Menu()
-        menu.append("Copy", "term.copy")
-        menu.append("Paste", "term.paste")
-        menu.append("Select All", "term.select-all")
-        self.set_context_menu_model(menu)
+        if self._menu_link:
+            link = Gio.Menu()
+            link.append("Open Link", "term.open-link")
+            link.append("Copy Link", "term.copy-link")
+            menu.append_section(None, link)
+        edit = Gio.Menu()
+        edit.append("Copy", "term.copy")
+        edit.append("Paste", "term.paste")
+        edit.append("Select All", "term.select-all")
+        menu.append_section(None, edit)
+        return menu
+
+    def _on_setup_context_menu(self, _terminal, context):
+        if context is None:
+            return  # the menu is closing
+        _, x, y = context.get_coordinates()
+        self.set_context_menu_model(self.context_menu_at(x, y))
+
+    def _on_click(self, gesture, _n_press, x, y):
+        if not gesture.get_current_event_state() & Gdk.ModifierType.CONTROL_MASK:
+            return
+        link = self.link_at(x, y)
+        if link:
+            gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+            self.open_link(link)
 
     def _activate_if_enabled(self, name):
         if self.actions.get_action_enabled(name):
