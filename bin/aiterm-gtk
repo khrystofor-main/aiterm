@@ -1,8 +1,0 @@
-#!/usr/bin/env bash
-# aiterm-gtk — the native GTK 4 terminal (v0.2, work in progress).
-# Runs the Python package from this repository; no build step.
-set -euo pipefail
-
-ROOT=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
-export PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
-exec python3 -m aiterm "$@"

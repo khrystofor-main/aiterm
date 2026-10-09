@@ -1,7 +1,6 @@
-"""aiterm-left and aiterm-run for the GTK app: clients of the terminal API
-(dbus_api.py). bin/aiterm-left and bin/aiterm-run run this when the agent was
-started by Aiterm (AITERM_WINDOW is set); the arguments, output and exit
-codes are the same as the tmux versions'.
+"""aiterm-left and aiterm-run: clients of the terminal API (dbus_api.py).
+bin/aiterm-left and bin/aiterm-run run this; the agent started by Aiterm has
+AITERM_WINDOW (and AITERM_BUS_NAME, AITERM_OBJECT_PATH) to find its window.
 
     python3 -m aiterm.tools left [N|all]
     python3 -m aiterm.tools run [-t SECONDS] 'command' | -w

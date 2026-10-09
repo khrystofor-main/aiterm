@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # install.sh — installs aiterm for the current user (no sudo needed).
 #   - links bin/* into ~/.local/bin
-#   - adds an "AI Terminal" launcher to the applications menu
-#   - adds the native GTK app (Aiterm, v0.2 preview) to the menu if its libraries are there
+#   - adds Aiterm to the applications menu
 #   - adds the agent rules to ~/.gemini/GEMINI.md (between aiterm markers)
 #   - lets agy run aiterm-left / aiterm-run without asking every time
 # Running it again updates everything in place.
@@ -17,7 +16,8 @@ BEGIN='<!-- aiterm:begin -->'
 END='<!-- aiterm:end -->'
 
 missing=()
-command -v tmux >/dev/null || missing+=("tmux (sudo apt install tmux)")
+python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("Vte", "3.91")' 2>/dev/null ||
+  missing+=("GTK 4, libadwaita and VTE for Python (sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-vte-3.91)")
 command -v jq >/dev/null || missing+=("jq (sudo apt install jq)")
 command -v agy >/dev/null || [ -x "$BIN/agy" ] || missing+=("agy (https://antigravity.google/docs/cli/install)")
 if [ ${#missing[@]} -gt 0 ]; then
@@ -40,37 +40,20 @@ for f in "$ROOT"/bin/*; do
 done
 echo "✓ Commands linked into $BIN: $(ls "$ROOT/bin" | tr '\n' ' ')"
 
-# 2. Applications menu launcher
-if command -v ptyxis >/dev/null; then
-  exec_line="ptyxis --new-window -x $BIN/aiterm"
-elif command -v gnome-terminal >/dev/null; then
-  exec_line="gnome-terminal -- $BIN/aiterm"
-else
-  exec_line="x-terminal-emulator -e $BIN/aiterm"
-fi
-mkdir -p "$APPS"
-cat > "$APPS/aiterm.desktop" <<EOF
-[Desktop Entry]
-Type=Application
-Name=AI Terminal
-Comment=Terminal with the agy AI agent on the side
-Exec=$exec_line
-Icon=utilities-terminal
-Terminal=false
-Categories=System;TerminalEmulator;
-EOF
-update-desktop-database "$APPS" 2>/dev/null || true
-echo "✓ Launcher: AI Terminal ($APPS/aiterm.desktop)"
+# Links to commands this repository no longer has (aiterm-gtk)
+for target in "$BIN"/aiterm*; do
+  if [ -L "$target" ] && [[ $(readlink "$target") == "$ROOT"/bin/* ]] && [ ! -e "$target" ]; then
+    rm "$target"
+  fi
+done
 
-# 2b. The native GTK app. Optional until it replaces the tmux version
-GTK_DESKTOP="io.github.khrystofor_main.Aiterm.desktop"
-if python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("Vte", "3.91")' 2>/dev/null; then
-  sed "s|@BIN@|$BIN|" "$ROOT/data/$GTK_DESKTOP.in" > "$APPS/$GTK_DESKTOP"
-  update-desktop-database "$APPS" 2>/dev/null || true
-  echo "✓ Launcher: Aiterm, the native GTK app ($APPS/$GTK_DESKTOP)"
-else
-  echo "• Skipped the native GTK app: sudo apt install python3-gi gir1.2-adw-1 gir1.2-vte-3.91"
-fi
+# 2. Applications menu launcher; the tmux version's "AI Terminal" goes
+mkdir -p "$APPS"
+rm -f "$APPS/aiterm.desktop"
+DESKTOP="io.github.khrystofor_main.Aiterm.desktop"
+sed "s|@BIN@|$BIN|" "$ROOT/data/$DESKTOP.in" > "$APPS/$DESKTOP"
+update-desktop-database "$APPS" 2>/dev/null || true
+echo "✓ Launcher: Aiterm ($APPS/$DESKTOP)"
 
 # 3. Agent rules: replace our block, keep everything else in the file
 mkdir -p "$(dirname "$RULES")"
@@ -98,7 +81,7 @@ echo "✓ agy may run aiterm-left and aiterm-run without asking ($AGY_SETTINGS)"
 
 cat <<'EOF'
 
-Done. Start it with `aiterm` or from the menu (AI Terminal).
+Done. Start it with `aiterm` or from the menu (Aiterm); Alt+Enter opens the agent.
 
 Optional:
   - agy only auto-approves simple commands, so it may still ask about

@@ -1,109 +1,14 @@
 #!/usr/bin/env bash
-# aiterm-run — runs a command in the user's terminal (left pane), in plain sight,
-# waits for it to finish and returns its output to the agent.
+# aiterm-run — runs a command in the user's terminal, in plain sight, waits for
+# it to finish and returns its output and exit code to the agent.
 #   aiterm-run 'command'          type the command and wait for it (up to 60 s)
 #   aiterm-run -t 600 'command'   wait longer (apt, builds, downloads)
 #   aiterm-run -w                 type nothing, just wait for the running command
 #
 # Exit codes: 0 done, 1 not inside aiterm, 2 usage, 3 terminal busy
 # (the user is typing or a program is running), 124 still running after the timeout.
+# Talks to the Aiterm app over D-Bus (src/aiterm/tools.py, src/aiterm/dbus_api.py).
 set -euo pipefail
 
-# Started by the GTK app (AITERM_WINDOW): talk to it over D-Bus instead of
-# tmux, same arguments and exit codes (src/aiterm/tools.py)
-if [ -n "${AITERM_WINDOW:-}" ]; then
-  ROOT=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
-  PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m aiterm.tools run "$@"
-fi
-
-usage() {
-  echo "Usage: aiterm-run [-t SECONDS] 'command'  |  aiterm-run [-t SECONDS] -w" >&2
-  exit 2
-}
-
-pane=${AITERM_LEFT_PANE:-}
-if [ -z "$pane" ]; then
-  echo "agy is not running inside aiterm: there is no user terminal." >&2
-  exit 1
-fi
-
-timeout=60
-wait_only=0
-while getopts 't:w' opt; do
-  case $opt in
-    t) [[ $OPTARG =~ ^[0-9]+$ ]] || usage; timeout=$OPTARG ;;
-    w) wait_only=1 ;;
-    *) usage ;;
-  esac
-done
-shift $((OPTIND - 1))
-cmd=${1-}
-if [ "$wait_only" = 0 ] && [ -z "$cmd" ]; then usage; fi
-
-t() { tmux ${AITERM_SOCKET:+-L "$AITERM_SOCKET"} "$@"; }
-
-prompt_re='^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+:[^$#]*[$#]( |$)'
-left="$(dirname "$(readlink -f "$0")")/aiterm-left"
-
-current() { t display-message -p -t "$pane" '#{pane_current_command}'; }
-# The last non-empty line on the screen
-last_line() { t capture-pane -p -J -t "$pane" | grep -v '^[[:space:]]*$' | tail -n 1 || true; }
-# The terminal is free: only bash is running and the prompt line is empty
-idle() {
-  [ "$(current)" = bash ] || return 1
-  last_line | grep -Eq "${prompt_re}[[:space:]]*\$"
-}
-
-# Output of the last command; very long output is cut to its tail
-show_result() {
-  local out n
-  out=$("$left" 1)
-  n=$(printf '%s\n' "$out" | wc -l)
-  if [ "$n" -gt 302 ]; then
-    printf '%s\n' "$out" | head -n 2
-    echo "[… $((n - 302)) lines skipped …]"
-    printf '%s\n' "$out" | tail -n 300
-  else
-    printf '%s\n' "$out"
-  fi
-}
-
-if [ "$wait_only" = 0 ]; then
-  # The user is scrolling (tmux copy mode): leave it, otherwise the keys go there
-  if [ "$(t display-message -p -t "$pane" '#{pane_in_mode}')" = 1 ]; then
-    t send-keys -t "$pane" -X cancel
-  fi
-
-  if ! idle; then
-    if [ "$(current)" != bash ]; then
-      echo "The terminal is busy: «$(current)» is running. Nothing was typed." >&2
-      echo "Wait for it (aiterm-run -w) or ask the user to finish the program." >&2
-    else
-      echo "The user is typing in the terminal: «$(last_line)». Nothing was typed." >&2
-      echo "Ask them to finish or clear the line (Ctrl+C), then retry." >&2
-    fi
-    exit 3
-  fi
-
-  # A command with sudo: drop cached credentials so that every sudo command
-  # from the agent needs the user's password typed in the left pane
-  if [[ $cmd =~ (^|[^[:alnum:]_-])sudo([^[:alnum:]_-]|$) ]]; then
-    sudo -K 2>/dev/null || true
-  fi
-
-  t send-keys -t "$pane" -l -- "$cmd"
-  t send-keys -t "$pane" Enter
-  sleep 0.2
-fi
-
-deadline=$((SECONDS + timeout))
-until idle; do
-  if [ "$SECONDS" -ge "$deadline" ]; then
-    show_result
-    echo "[the command is still running or waiting for input (now running: $(current)). If it waits for a password or an answer, tell the user what to type in the left pane, then call aiterm-run -w]"
-    exit 124
-  fi
-  sleep 0.2
-done
-
-show_result
+ROOT=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
+PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m aiterm.tools run "$@"

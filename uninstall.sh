@@ -29,5 +29,4 @@ if [ -f "$AGY_SETTINGS" ] && command -v jq >/dev/null; then
     "$AGY_SETTINGS" > "$tmp" && mv "$tmp" "$AGY_SETTINGS"
 fi
 
-tmux -L aiterm kill-server 2>/dev/null || true
 echo "aiterm removed."

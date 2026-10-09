@@ -212,7 +212,6 @@ def steps(app):
     # aiterm-left / aiterm-run as the agent runs them (separate processes)
     def run_tool(*argv, seconds=20):
         launcher = Gio.SubprocessLauncher.new(Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_MERGE)
-        launcher.unsetenv("AITERM_LEFT_PANE")
         launcher.setenv("AITERM_WINDOW", str(win.get_id()), True)
         launcher.setenv("AITERM_BUS_NAME", app.get_dbus_connection().get_unique_name(), True)
         launcher.setenv("AITERM_OBJECT_PATH", app.get_dbus_object_path(), True)

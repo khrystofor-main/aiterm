@@ -58,9 +58,6 @@ class AgentPanel(Adw.Bin):
                 "AITERM_BUS_NAME": app.get_dbus_connection().get_unique_name(),
                 "AITERM_OBJECT_PATH": app.get_dbus_object_path(),
                 "PATH": f"{BIN}:{os.environ.get('PATH', '')}",
-                # Started from inside the tmux version: not that terminal
-                "AITERM_LEFT_PANE": None,
-                "AITERM_SOCKET": None,
             },
         )
         self.terminal.connect("exited", lambda *_: self._on_exited())
