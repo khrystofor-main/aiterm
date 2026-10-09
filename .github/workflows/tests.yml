@@ -23,10 +23,15 @@ jobs:
             xvfb xauth dbus-x11 dbus libgl1-mesa-dri fonts-dejavu-core
       - uses: actions/checkout@v4
       - name: Run the tests (GTK under a virtual X display)
+        # Xvfb has no GPU: GTK's GL renderer falls back to slow software GL,
+        # and a busy screen (the chat's spinners) then starves the main loop.
+        # The cairo renderer is the quick one without a GPU
+        env:
+          GSK_RENDERER: cairo
         run: |
           useradd -m tester
           chown -R tester .
-          su tester -c 'dbus-run-session -- xvfb-run -a -s "-screen 0 1600x1000x24" tests/run.sh'
+          su tester -w GSK_RENDERER -c 'dbus-run-session -- xvfb-run -a -s "-screen 0 1600x1000x24" tests/run.sh'
 
   package:
     runs-on: ubuntu-latest
