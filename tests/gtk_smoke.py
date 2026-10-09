@@ -33,6 +33,7 @@ except (ImportError, ValueError) as e:
     sys.exit(SKIP)
 
 import aiterm.window as window_module  # noqa: E402
+from aiterm import dbus_api  # noqa: E402
 from aiterm.application import Application  # noqa: E402
 from aiterm.palettes import PALETTES  # noqa: E402
 from aiterm.preferences import PreferencesDialog  # noqa: E402
@@ -91,6 +92,13 @@ def capture_shortcuts(widget):
                 shortcut = c.get_item(j)
                 found[shortcut.get_trigger().to_string()] = shortcut
     return found
+
+
+def _finish_call(connection, result):
+    try:
+        return connection.call_finish(result).unpack()
+    except GLib.Error as error:
+        return error
 
 
 def menu_labels(menu):
@@ -155,6 +163,49 @@ def steps(app):
           wait_for(lambda: last().text == "printf 'no newline'") and last().output == "no newline", repr(last()))
     check("the prompt after it starts on its own line",
           wait_for(lambda: "no newline\n" in screen_text(term)), screen_text(term)[-200:])
+
+    # The agent's API, called over D-Bus like the tools do
+    def call(method, args, signature, reply_type, seconds=15):
+        box = []
+        app.get_dbus_connection().call(
+            app.get_dbus_connection().get_unique_name(), app.get_dbus_object_path(), dbus_api.INTERFACE, method,
+            GLib.Variant(signature, args), GLib.VariantType(reply_type), Gio.DBusCallFlags.NONE,
+            seconds * 1000, None, lambda conn, res: box.append(_finish_call(conn, res)))
+        wait_for(lambda: box, seconds)
+        return box[0] if box else "no reply"
+
+    run = lambda command, timeout=10: call("RunCommand", (win.get_id(), command, timeout), "(usu)", "(ssssi)")
+    result = run("echo dbus-$((2+3))")
+    check("RunCommand types the command and returns its output",
+          result == ("done", os.path.expanduser("~"), "echo dbus-$((2+3))", "dbus-5", 0), str(result))
+    result = run("false")
+    check("RunCommand returns the exit code", result[:1] == ("done",) and result[4] == 1, str(result))
+    result = call("ReadCommands", (win.get_id(), 2), "(ui)", "(sa(ssid))")
+    check("ReadCommands returns the last commands",
+          [c[:3] for c in result[1]] == [("echo dbus-$((2+3))", "dbus-5", 0), ("false", "", 1)], str(result))
+    result = call("ReadScreen", (win.get_id(),), "(u)", "(ss)")
+    check("ReadScreen returns the scrollback", "dbus-5" in result[1], str(result)[:200])
+    term.feed_child(b"half-typed")
+    wait_for(lambda: log.typed_text() == "half-typed")
+    result = run("echo no")
+    check("RunCommand refuses while the user is typing", result[:3] == ("typing", result[1], "half-typed"),
+          str(result))
+    term.feed_child(b"\x15")  # Ctrl+U clears the line
+    wait_for(lambda: not log.typed_text())
+    term.feed_child(b"sleep 2\n")
+    wait_for(lambda: term.running_program() == "sleep")
+    result = run("echo no")
+    check("RunCommand refuses while a program runs", result[:1] == ("busy",) and result[2] == "sleep",
+          str(result))
+    result = call("Wait", (win.get_id(), 10), "(uu)", "(ssssi)")
+    check("Wait waits for the running command", result[0] == "done" and result[2] == "sleep 2", str(result))
+    result = run("sleep 3; echo late", timeout=1)
+    check("RunCommand gives up after its timeout", result[0] == "timeout" and result[2] == "sleep", str(result))
+    result = call("Wait", (win.get_id(), 10), "(uu)", "(ssssi)")
+    check("…and Wait gets the rest", result[0] == "done" and result[3] == "late", str(result))
+    result = call("ReadScreen", (999_999,), "(u)", "(ss)")
+    check("an unknown window is an error", isinstance(result, GLib.Error) and "NoWindow" in result.message,
+          str(result))
 
     term.feed_child(b"seq 300\n")
     wait_for(lambda: last().text == "seq 300")
