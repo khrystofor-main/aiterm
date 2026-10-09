@@ -67,13 +67,24 @@ Run `aiterm` (or open **AI Terminal** from the menu). Work on the left, talk to 
 
 Tip: `agy` asks before every `aiterm-run 'command'`, because its allow rules only match simple commands. To make it fully hands-free, set **Tool Permission → always-proceed** in `agy`'s `/config`; the `sudo` guard keeps working.
 
+## Native app (v0.2 preview)
+
+aiterm is moving from tmux to its own GTK 4 window. The first step is a plain terminal built on Python, libadwaita and VTE, meant to replace Ptyxis day to day; the agent comes back into it later. It follows the system light/dark theme and font.
+
+```bash
+sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-vte-3.91
+./install.sh   # adds "Aiterm" to the applications menu
+```
+
+Or run it straight from the repo: `bin/aiterm-gtk`. The plan and feature list are in [docs/v0.2-plan.md](docs/v0.2-plan.md).
+
 ## Tests
 
 ```bash
 tests/run.sh
 ```
 
-Integration tests drive a real bash in a throwaway tmux server: reading the last / last N / all commands, folder tracking, quoting, timeouts, waiting for a running command, and refusing to type while the user is typing or a program runs.
+Integration tests drive a real bash in a throwaway tmux server: reading the last / last N / all commands, folder tracking, quoting, timeouts, waiting for a running command, and refusing to type while the user is typing or a program runs. A smoke test then opens the GTK app with a real bash and checks commands, the title and the theme switch (skipped without a display).
 
 ## Limitations
 
@@ -84,7 +95,7 @@ Integration tests drive a real bash in a throwaway tmux server: reading the last
 ## Roadmap
 
 - [x] **v0.1** — tmux-based prototype: read and run tools, rules, sudo guard, installer, tests
-- [ ] **v0.2** — native GTK4 + VTE app: one window, terminal and agent panel, no tmux
+- [ ] **v0.2** — native GTK4 + VTE app: one window, terminal and agent panel, no tmux ([plan](docs/v0.2-plan.md))
 - [ ] **v0.3** — own MCP server: terminal tools exposed to the agent over MCP instead of shell scripts
 - [ ] **v0.4** — evals: a suite of broken-system scenarios to measure how well the agent diagnoses and fixes them
 

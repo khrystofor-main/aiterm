@@ -13,11 +13,14 @@ AI terminal for Ubuntu: the user's shell on the left, the `agy` agent (Antigravi
 - `bin/aiterm-left` — the agent reads the user's terminal (last command / N / all).
 - `bin/aiterm-run` — the agent runs a command in the user's terminal and gets the output.
 - `rules/aiterm.md` — agent rules; `install.sh` puts them into `~/.gemini/GEMINI.md` between `<!-- aiterm:begin -->` / `<!-- aiterm:end -->`.
-- `tests/run.sh` — integration tests on a throwaway tmux server.
+- `bin/aiterm-gtk`, `src/aiterm/` — the native GTK 4 app (v0.2, Python + PyGObject, libadwaita, VTE 3.91). Plan: `docs/v0.2-plan.md`.
+- `data/*.desktop.in` — the app's launcher; `install.sh` fills in `@BIN@`.
+- `tests/run.sh` — integration tests on a throwaway tmux server, then `tests/gtk_smoke.py` (real window, skipped without a display).
 
 ## Working on it
 
-- Run `tests/run.sh` after any change to `bin/`. Add a test for new behaviour.
+- Run `tests/run.sh` after any change to `bin/` or `src/`. Add a test for new behaviour.
+- GTK tests use their own non-unique application ID, so they never reach the user's running Aiterm.
 - The tools find the tmux server through `AITERM_SOCKET` and the user's pane through `AITERM_LEFT_PANE`; keep both working.
 - Never touch the user's live session (`tmux -L aiterm`) or their real `~/.gemini` files from tests.
 - Things only the user's machine has: `agy` with their login, the GNOME desktop, their tmux session. Cloud sessions can edit code and run `tests/run.sh` (needs tmux), but checking agy or the GUI needs a thread on the user's computer.

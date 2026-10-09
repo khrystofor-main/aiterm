@@ -2,6 +2,7 @@
 # install.sh — installs aiterm for the current user (no sudo needed).
 #   - links bin/* into ~/.local/bin
 #   - adds an "AI Terminal" launcher to the applications menu
+#   - adds the native GTK app (Aiterm, v0.2 preview) to the menu if its libraries are there
 #   - adds the agent rules to ~/.gemini/GEMINI.md (between aiterm markers)
 #   - lets agy run aiterm-left / aiterm-run without asking every time
 # Running it again updates everything in place.
@@ -60,6 +61,16 @@ Categories=System;TerminalEmulator;
 EOF
 update-desktop-database "$APPS" 2>/dev/null || true
 echo "✓ Launcher: AI Terminal ($APPS/aiterm.desktop)"
+
+# 2b. The native GTK app. Optional until it replaces the tmux version
+GTK_DESKTOP="io.github.khrystofor_main.Aiterm.desktop"
+if python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("Vte", "3.91")' 2>/dev/null; then
+  sed "s|@BIN@|$BIN|" "$ROOT/data/$GTK_DESKTOP.in" > "$APPS/$GTK_DESKTOP"
+  update-desktop-database "$APPS" 2>/dev/null || true
+  echo "✓ Launcher: Aiterm, the native GTK app ($APPS/$GTK_DESKTOP)"
+else
+  echo "• Skipped the native GTK app: sudo apt install python3-gi gir1.2-adw-1 gir1.2-vte-3.91"
+fi
 
 # 3. Agent rules: replace our block, keep everything else in the file
 mkdir -p "$(dirname "$RULES")"

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Aiterm
+GenericName=Terminal
+Comment=GTK 4 terminal, the base for the aiterm AI terminal
+Exec=@BIN@/aiterm-gtk
+Icon=utilities-terminal
+Terminal=false
+StartupNotify=true
+Categories=System;TerminalEmulator;GTK;
+Keywords=shell;prompt;command;commandline;cmd;

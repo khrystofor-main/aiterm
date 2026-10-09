@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Integration tests for aiterm-left and aiterm-run.
+# Integration tests for aiterm-left and aiterm-run, plus the GTK app smoke test.
 # Each test drives a real bash in a throwaway tmux server, so nothing touches
 # the user's terminal. Needs tmux. Run: tests/run.sh
 set -uo pipefail
@@ -63,6 +63,14 @@ out=$("$LEFT" abc 2>&1); code=$?
 check "rejects a bad argument (code 2)" "2" "$code"
 out=$(AITERM_LEFT_PANE= "$LEFT" 2>&1); code=$?
 check "outside aiterm exits with code 1" "1" "$code"
+
+echo "GTK app"
+"$ROOT/tests/gtk_smoke.py" 2> >(grep -v -e VK_SUBOPTIMAL -e '^$' >&2); code=$?
+case $code in
+  0) pass=$((pass + 1)) ;;
+  77) ;;  # skipped: no display or no VTE for GTK 4
+  *) fail=$((fail + 1)) ;;
+esac
 
 echo
 echo "$pass passed, $fail failed"
