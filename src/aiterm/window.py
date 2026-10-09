@@ -116,12 +116,12 @@ class Window(Adw.ApplicationWindow):
         # to resize. The panel keeps its width when the window is resized
         self.agent_panel = AgentPanel(self)
         self.agent_panel.set_visible(settings.agent_panel_visible)
-        # The agent's commands wait for the user's Run here, above the terminal
+        # The agent's commands wait for the user's Run here, floating over
+        # the terminal (approval.py)
         self.approval = ApprovalBar()
-        terminal_side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        terminal_side.append(self.approval)
-        terminal_side.append(self.tabs)
-        self.tabs.set_vexpand(True)
+        self.approval.set_valign(Gtk.Align.START)
+        terminal_side = Gtk.Overlay(child=self.tabs)
+        terminal_side.add_overlay(self.approval)
         self.paned = Gtk.Paned(
             start_child=terminal_side, end_child=self.agent_panel,
             resize_end_child=False, shrink_start_child=False, shrink_end_child=False,

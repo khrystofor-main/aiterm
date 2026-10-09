@@ -116,7 +116,7 @@ class TerminalApi:
             if not self._refuse(invocation, terminal):
                 self._type(invocation, terminal, command, timeout)
 
-        approval.ask(command, answered)
+        approval.ask(command, answered, terminal)
 
     def _refuse(self, invocation, terminal):
         """Replies busy or typing when the terminal is not free; True then."""

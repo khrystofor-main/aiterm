@@ -1,0 +1,29 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tests:
+    # VTE with terminal properties (0.80+) and libadwaita 1.8 come with
+    # Ubuntu 26.04; the hosted runners are older, so the job runs in its image
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:26.04
+      # bubblewrap needs user namespaces for the eval scenarios' sandbox
+      options: --privileged
+    steps:
+      - name: Install dependencies
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-vte-3.91 jq bubblewrap git ca-certificates \
+            xvfb xauth dbus-x11 dbus libgl1-mesa-dri fonts-dejavu-core
+      - uses: actions/checkout@v4
+      - name: Run the tests (GTK under a virtual X display)
+        run: |
+          useradd -m tester
+          chown -R tester .
+          su tester -c 'dbus-run-session -- xvfb-run -a -s "-screen 0 1600x1000x24" tests/run.sh'
