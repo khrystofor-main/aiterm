@@ -2,6 +2,7 @@
 look and the user's preferences."""
 
 import os
+import shlex
 
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango, Vte
 
@@ -77,6 +78,7 @@ class Terminal(Vte.Terminal):
         self.connect("child-exited", self._on_child_exited)
         self._add_clipboard_actions()
         self._add_links()
+        self._add_file_drop()
 
         self._pid = None
         self._spawn(cwd or GLib.get_home_dir())
@@ -142,6 +144,21 @@ class Terminal(Vte.Terminal):
 
         self.set_context_menu_model(self.context_menu_at(None, None))
         self.connect("setup-context-menu", self._on_setup_context_menu)
+
+    def _add_file_drop(self):
+        """Dropping files (from Files, a browser download bar…) types their
+        paths, quoted for the shell, like other GNOME terminals."""
+        drop = Gtk.DropTarget.new(Gdk.FileList, Gdk.DragAction.COPY)
+        drop.connect("drop", lambda _target, files, *_: self.paste_files(files.get_files()))
+        self.add_controller(drop)
+
+    def paste_files(self, files):
+        paths = [f.get_path() or f.get_uri() for f in files]
+        if not paths:
+            return False
+        self.paste_text(" ".join(shlex.quote(p) for p in paths) + " ")
+        self.grab_focus()
+        return True
 
     def link_at(self, x, y):
         """The link under widget coordinates x, y, or None."""
