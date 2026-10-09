@@ -667,6 +667,31 @@ def steps(app):
           markdown_to_pango("a < b `x` **y**\n```sh\nls <dir>\n```") == "a &lt; b <tt>x</tt> <b>y</b>\n<tt>ls &lt;dir&gt;</tt>")
     settings.agent_view = "terminal"
     check("switching back to Terminal starts agy's terminal again", win.agent_panel.terminal is not None)
+    panel = win.agent_panel
+    check("…and remembers the chat's conversation for it", panel.resume == chat.process.conversation_id,
+          f"{panel.resume} vs {chat.process.conversation_id}")
+    settings.agent_view = "chat"
+    check("back in Chat, the same conversation shows again with a note",
+          panel.chat is chat and "Back from the Terminal view" in " ".join(texts()))
+    count = len(texts())
+    chat.send("still here")
+    check("…and goes on with the same conversation id",
+          wait_for(lambda: any("You said: <b>still here</b>" in t for t in texts()))
+          and "--conversation" in chat.process.started_argv, str(chat.process.started_argv))
+    wait_for(lambda: not chat.process.busy)
+    # A conversation begun in the Terminal view: the chat continues it
+    settings.agent_view = "terminal"
+    panel.last_chat, panel.resume = None, None  # as if the Terminal view came first
+    settings.agent_view = "chat"
+    check("from the Terminal view, the chat continues its conversation",
+          panel.chat is not chat and panel.chat.process.continue_last
+          and "Continuing the conversation" in " ".join(
+              w.get_label() for w in widgets(panel.chat.messages) if isinstance(w, Gtk.Label)))
+    panel.chat.send("hello again")
+    check("…with agy --continue", wait_for(lambda: panel.chat.process.running)
+          and "--continue" in panel.chat.process.started_argv, str(panel.chat.process.started_argv))
+    wait_for(lambda: not panel.chat.process.busy)
+    settings.agent_view = "terminal"
 
     # Without the agy plugin (as after installing the .deb), the panel asks first
     import aiterm.agent_panel as agent_panel

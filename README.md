@@ -84,7 +84,7 @@ The installer (no sudo) links the commands into `~/.local/bin`, adds **Aiterm** 
 
 ## Usage
 
-Open **Aiterm** from the menu (or run `aiterm`). Work in your shell; press **Alt+Enter** to talk to the agent and again to get back. The panel shows agy's own interface; for the chat drawn by Aiterm, set Preferences → Agent → View to **Chat** (Enter sends, Shift+Enter adds a line).
+Open **Aiterm** from the menu (or run `aiterm`). Work in your shell; press **Alt+Enter** to talk to the agent and again to get back. The panel shows agy's own interface; for the chat drawn by Aiterm, set Preferences → Agent → View to **Chat** (Enter sends, Shift+Enter adds a line). Switching views keeps the conversation: agy's interface shows the chat's messages, and the chat goes on from where agy's interface was (its earlier messages stay there).
 
 | Keys | Action |
 |---|---|

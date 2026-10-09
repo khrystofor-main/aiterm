@@ -228,6 +228,11 @@ class ChatView(Gtk.Box):
     def focus(self):
         self.input.grab_focus()
 
+    def add_note(self, text):
+        """A quiet line in the conversation, from the app rather than agy."""
+        self._add(_label(text, css=("caption", "dim-label"), selectable=False, xalign=0.5,
+                         justify=Gtk.Justification.CENTER))
+
     def text(self):
         buffer = self.input.get_buffer()
         return buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), False)
@@ -320,6 +325,10 @@ class ChatView(Gtk.Box):
 
     def on_exited(self, stopped, stderr):
         self._set_busy(False)
+        if self.process.switching:
+            self.process.switching = False
+            self.steps.clear()
+            return
         for row, _ in self.steps.values():
             if isinstance(row, (CommandRow, ToolRow)) and row.spinner.get_visible():
                 row.finish("Stopped", True)

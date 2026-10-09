@@ -28,7 +28,7 @@ AI terminal for Ubuntu: a GTK app with the user's shell in tabs and the `agy` ag
 
 - Run `tests/run.sh` after any change to `bin/` or `src/`. Add a test for new behaviour.
 - GTK tests use their own non-unique application ID, so they never reach the user's running Aiterm; `AITERM_CONFIG_DIR` pointing at a temp folder, so they never touch `~/.config/aiterm`; and `AITERM_AGENT` set to a plain bash, so they never start agy.
-- The smoke test opens real windows on the user's desktop; typing on the keyboard while it runs can land in them and fail a check.
+- The smoke test opens real windows on the user's desktop; typing on the keyboard while it runs can land in them and fail a check. While the user works, run it off-screen instead: `gtk4-broadwayd :7 &` then `GDK_BACKEND=broadway BROADWAY_DISPLAY=:7 tests/run.sh`.
 - Never touch the user's real `~/.gemini` files from tests.
 - Things only the user's machine has: `agy` with their login and the GNOME desktop. Cloud sessions can edit code and run the tool checks in `tests/run.sh` (the GTK part is skipped without a display), but checking agy or the GUI needs a thread on the user's computer.
 - Don't use the user's subscription token outside the official `agy` client. Integrations go through `agy` itself (MCP, `--output-format stream-json`).
