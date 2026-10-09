@@ -9,6 +9,7 @@ gi.require_version("Vte", "3.91")
 from gi.repository import Adw, Gdk, Gtk  # noqa: E402
 
 from aiterm import APP_ID  # noqa: E402
+from aiterm.terminal import SHORTCUTS  # noqa: E402
 from aiterm.window import Window  # noqa: E402
 
 # Keeps text off the window edges
@@ -16,9 +17,10 @@ CSS = "vte-terminal { padding: 4px 8px; }"
 
 
 class Application(Adw.Application):
-    def __init__(self):
-        # Adw.Application follows the system light/dark preference on its own
-        super().__init__(application_id=APP_ID)
+    def __init__(self, application_id=APP_ID, **kwargs):
+        # Adw.Application follows the system light/dark preference on its own.
+        # Tests pass their own ID so they never reach a running Aiterm
+        super().__init__(application_id=application_id, **kwargs)
 
     def do_startup(self):
         Adw.Application.do_startup(self)
@@ -27,6 +29,10 @@ class Application(Adw.Application):
         Gtk.StyleContext.add_provider_for_display(
             Gdk.Display.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
+        # The terminal handles these keys itself; registering them here only
+        # shows them next to the items in menus
+        for name, accel in SHORTCUTS.items():
+            self.set_accels_for_action(f"term.{name}", [accel])
 
     def do_activate(self):
         # Launching the app again (menu, dock) opens another window in the same
