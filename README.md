@@ -93,11 +93,13 @@ The tools' argument and error handling are checked on their own. Then `tests/gtk
 
 ## Roadmap
 
-- [x] **v0.1** — tmux-based prototype: read and run tools, rules, sudo guard, installer, tests
-- [x] **v0.2** — native GTK4 + VTE terminal: tabs, search, preferences, command log, an empty agent panel ([plan](docs/v0.2-plan.md))
-- [x] **v0.3** — the agent (agy) in the panel; the tools talk to the app over D-Bus instead of tmux ([plan](docs/v0.3-plan.md))
-- [ ] **v0.4** — own MCP server: terminal tools exposed to the agent over MCP instead of shell scripts
-- [ ] **v0.5** — evals: a suite of broken-system scenarios to measure how well the agent diagnoses and fixes them
+- [x] **v0.1 — tmux prototype.** Read and run tools for the agent, agent rules, sudo guard, installer, integration tests.
+- [x] **v0.2 — the terminal itself.** A native terminal app on Python + GTK4 + libadwaita + VTE, no AI yet: GNOME-style window with a header bar and tabs, themes and palettes, fonts, a settings window, shortcuts, copy/paste, search in output, clickable links, an app launcher. *Done when it replaces the default terminal for daily use.* ([plan](docs/v0.2-plan.md))
+- [x] **v0.3 — agent panel.** A side panel with `agy` inside the same window (toggle, resizable). No more tmux: the app itself reads the terminal and types commands, and `aiterm-left` / `aiterm-run` talk to the app. *Done when everything v0.1 does works in one window.* ([plan](docs/v0.3-plan.md))
+- [ ] **v0.4 — own MCP server.** Terminal tools (`read_terminal`, `run_command`, `get_cwd`, …) exposed to the agent over MCP instead of shell scripts and prompt rules. Shell integration gives exact command boundaries and exit codes, so a custom `PS1` no longer matters. *Done when the agent uses the tools without instructions in `GEMINI.md`.*
+- [ ] **v0.5 — native chat UI** *(optional)*. The agent panel drawn by the app instead of agy's TUI: messages, collapsible command blocks, approval buttons, driven through `agy --output-format stream-json`.
+- [ ] **v0.6 — evals.** A suite of broken-system scenarios (missing package, typo, broken config, missing permissions) run automatically in an isolated environment. Metrics: solved or not, steps, tokens. Results published in this README.
+- [ ] **v1.0 — release.** A `.deb` or Flatpak package, demo GIF, CI on GitHub Actions running the tests, a tagged release.
 
 ## License
 
