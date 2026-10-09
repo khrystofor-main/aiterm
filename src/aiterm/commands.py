@@ -82,6 +82,31 @@ class CommandLog:
         for name in (STARTED, FINISHED, EXIT_CODE, PROMPT_MARK, COMMAND_TEXT):
             terminal.connect(f"termprop-changed::{name}", self._on_property)
 
+    @property
+    def running(self):
+        """True between a command's start and its end."""
+        return self._running is not None
+
+    def typed_text(self):
+        """What the user has typed after the current prompt, or None when
+        there is no prompt mark to tell (a shell without the integration)."""
+        if self._prompt is None or self._running is not None:
+            return None
+        _, row = self.terminal.get_cursor_position()
+        text, _ = self.terminal.get_text_range_format(
+            Vte.Format.TEXT, self._prompt.input_row, self._prompt.input_col, row, 10_000)
+        return (text or "").strip()
+
+    def screen_since_prompt(self):
+        """Everything after the current prompt: a running command and its
+        output so far."""
+        if self._prompt is None:
+            return ""
+        _, row = self.terminal.get_cursor_position()
+        text, _ = self.terminal.get_text_range_format(
+            Vte.Format.TEXT, self._prompt.input_row, self._prompt.input_col, row, 10_000)
+        return (text or "").rstrip("\n")
+
     def command_at_row(self, row):
         for command in reversed(self.commands):
             if command.start_row <= row < command.end_row:

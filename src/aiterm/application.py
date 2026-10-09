@@ -10,6 +10,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
 from aiterm import APP_ID, VERSION  # noqa: E402
 from aiterm import terminal, window  # noqa: E402
+from aiterm.dbus_api import TerminalApi  # noqa: E402
 from aiterm.preferences import PreferencesDialog  # noqa: E402
 from aiterm.window import Window  # noqa: E402
 
@@ -83,6 +84,15 @@ class Application(Adw.Application):
         show = Gio.SimpleAction.new("show-terminal", GLib.VariantType.new("(uu)"))
         show.connect("activate", lambda _action, target: self.show_terminal(*target.unpack()))
         self.add_action(show)
+
+    def do_dbus_register(self, connection, object_path):
+        # The agent's tools reach the terminals through this (see dbus_api.py)
+        self.terminal_api = TerminalApi(self, connection, object_path)
+        return Adw.Application.do_dbus_register(self, connection, object_path)
+
+    def do_dbus_unregister(self, connection, object_path):
+        self.terminal_api.unregister()
+        Adw.Application.do_dbus_unregister(self, connection, object_path)
 
     def do_activate(self):
         # Launching the app again (menu, dock) opens another window in the same
