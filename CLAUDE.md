@@ -12,12 +12,13 @@ AI terminal for Ubuntu: a GTK app with the user's shell in tabs and the `agy` ag
 - `bin/aiterm`, `src/aiterm/` — the app (Python + PyGObject, GTK 4, libadwaita, VTE 3.91), run from the repo. Plans: `docs/v0.2-plan.md` (terminal), `docs/v0.3-plan.md` (agent).
 - `bin/aiterm-left` — the agent reads the user's terminal (last command / N / all).
 - `bin/aiterm-run` — the agent runs a command in the user's terminal and gets the output and exit code.
-- Both tools run `src/aiterm/tools.py`, a D-Bus client; `src/aiterm/agent_panel.py` starts agy with `AITERM_WINDOW`, `AITERM_BUS_NAME`, `AITERM_OBJECT_PATH`.
+- Both tools run `src/aiterm/tools.py` on top of `src/aiterm/client.py`, the D-Bus client; `src/aiterm/agent_panel.py` starts agy with `AITERM_WINDOW`, `AITERM_BUS_NAME`, `AITERM_OBJECT_PATH`.
+- `bin/aiterm-mcp` — the MCP server (`src/aiterm/mcp_server.py`, stdio, no SDK): `read_terminal`, `run_command`, `wait_for_command`, `get_cwd`, through the same client. agy starts it and it inherits the `AITERM_*` variables. Plan: `docs/v0.4-plan.md`.
 - `rules/aiterm.md` — agent rules; `install.sh` puts them into `~/.gemini/GEMINI.md` between `<!-- aiterm:begin -->` / `<!-- aiterm:end -->`.
 - `src/aiterm/commands.py` + `src/aiterm/shell/integration.bash` — the command log (text, output, exit code per command). The app starts bash with `--rcfile` on that file; it loads `/etc/bash.bashrc` and `~/.bashrc` itself.
 - `src/aiterm/dbus_api.py` — the terminal API on the session bus (ReadCommands, ReadScreen, RunCommand, Wait); the agent's tools and later the MCP server are its clients. Plan: `docs/v0.3-plan.md`.
 - `data/*.desktop.in` — the app's launcher; `install.sh` fills in `@BIN@`.
-- `tests/run.sh` — the tools' error handling, then `tests/gtk_smoke.py` (real window and bash, end to end; skipped without a display).
+- `tests/run.sh` — the tools' error handling, the MCP protocol (`tests/mcp_protocol.py`), then `tests/gtk_smoke.py` (real window and bash, end to end; skipped without a display).
 
 ## Working on it
 

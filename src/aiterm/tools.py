@@ -1,72 +1,41 @@
-"""aiterm-left and aiterm-run: clients of the terminal API (dbus_api.py).
-bin/aiterm-left and bin/aiterm-run run this; the agent started by Aiterm has
-AITERM_WINDOW (and AITERM_BUS_NAME, AITERM_OBJECT_PATH) to find its window.
+"""aiterm-left and aiterm-run: the terminal API (dbus_api.py) on the command
+line, through client.py. bin/aiterm-left and bin/aiterm-run run this. The
+agent uses the MCP server (mcp_server.py) instead; these stay for scripts and
+debugging.
 
     python3 -m aiterm.tools left [N|all]
     python3 -m aiterm.tools run [-t SECONDS] 'command' | -w
 """
 
 import argparse
-import os
 import sys
 
-import gi
+from aiterm.client import NotInside, TerminalClient, Unreachable, format_command
 
-gi.require_version("Gio", "2.0")
-from gi.repository import Gio, GLib  # noqa: E402
-
-from aiterm import APP_ID, OBJECT_PATH, TERMINAL_INTERFACE  # noqa: E402
 NOT_INSIDE, USAGE, BUSY, TIMEOUT = 1, 2, 3, 124
 FALLBACK_LINES = 200
 
 
-def call(method, args, signature, reply_type, seconds=30):
-    bus = Gio.bus_get_sync(Gio.BusType.SESSION)
-    name = os.environ.get("AITERM_BUS_NAME", APP_ID)
-    window = int(os.environ["AITERM_WINDOW"])
-    try:
-        result = bus.call_sync(
-            name, os.environ.get("AITERM_OBJECT_PATH", OBJECT_PATH), TERMINAL_INTERFACE, method,
-            GLib.Variant(signature, (window, *args)), GLib.VariantType(reply_type),
-            Gio.DBusCallFlags.NONE, seconds * 1000, None)
-    except GLib.Error as error:
-        print(f"Cannot reach the Aiterm window: {error.message}", file=sys.stderr)
-        sys.exit(NOT_INSIDE)
-    return result.unpack()
-
-
-def format_command(command, output, exit_code):
-    lines = [f"$ {command}"]
-    if output:
-        lines.append(output)
-    if exit_code:
-        lines.append(f"[exit code {exit_code}]")
-    return "\n".join(lines)
-
-
-def left(mode):
+def left(client, mode):
     if mode == "all":
-        folder, text = call("ReadScreen", (), "(u)", "(ss)")
+        folder, text = client.read_screen()
         print(f"[terminal folder: {folder}]")
         print(text)
         return 0
-    folder, commands = call("ReadCommands", (int(mode),), "(ui)", "(sa(ssid))")
+    folder, commands = client.read_commands(int(mode))
     print(f"[terminal folder: {folder}]")
     if commands:
-        print("\n".join(format_command(c, o, e) for c, o, e, _ in commands))
+        print("\n".join(format_command(*c[:3]) for c in commands))
     else:
         # Nothing in the command log (no shell integration, a full-screen
         # program): the tail of the screen is the best guess
-        _, text = call("ReadScreen", (), "(u)", "(ss)")
+        _, text = client.read_screen()
         print("\n".join(text.split("\n")[-FALLBACK_LINES:]))
     return 0
 
 
-def run(command, timeout, wait_only):
-    if wait_only:
-        result = call("Wait", (timeout,), "(uu)", "(ssssi)", timeout + 10)
-    else:
-        result = call("RunCommand", (command, timeout), "(usu)", "(ssssi)", timeout + 10)
+def run(client, command, timeout, wait_only):
+    result = client.wait(timeout) if wait_only else client.run(command, timeout)
     status, folder, text, output, exit_code = result
     if status == "busy":
         print(f"The terminal is busy: «{text}» is running. Nothing was typed.", file=sys.stderr)
@@ -89,8 +58,10 @@ def run(command, timeout, wait_only):
 
 
 def main(argv):
-    if not os.environ.get("AITERM_WINDOW", "").isdigit():
-        print("agy is not running inside aiterm: there is no user terminal.", file=sys.stderr)
+    try:
+        client = TerminalClient()
+    except NotInside as error:
+        print(error, file=sys.stderr)
         return NOT_INSIDE
     parser = argparse.ArgumentParser(prog="aiterm-tools")
     sub = parser.add_subparsers(dest="tool", required=True)
@@ -108,11 +79,19 @@ def main(argv):
         if args.mode != "all" and not (args.mode.isdigit() and int(args.mode) > 0):
             print("Usage: aiterm-left [N|all]", file=sys.stderr)
             return USAGE
-        return left(args.mode)
+        return call(left, client, args.mode)
     if not args.wait_only and not args.command or args.timeout < 0:
         print("Usage: aiterm-run [-t SECONDS] 'command'  |  aiterm-run [-t SECONDS] -w", file=sys.stderr)
         return USAGE
-    return run(args.command or "", args.timeout, args.wait_only)
+    return call(run, client, args.command or "", args.timeout, args.wait_only)
+
+
+def call(tool, client, *args):
+    try:
+        return tool(client, *args)
+    except Unreachable as error:
+        print(error, file=sys.stderr)
+        return NOT_INSIDE
 
 
 if __name__ == "__main__":

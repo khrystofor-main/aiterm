@@ -241,6 +241,71 @@ def steps(app):
     result = run_tool("aiterm-run", "-w")
     check("aiterm-run -w waits for it", result[0] == 0 and "$ sleep 2" in result[1], repr(result))
 
+    # The MCP server, as agy runs it: a child process speaking JSON-RPC
+    launcher = Gio.SubprocessLauncher.new(Gio.SubprocessFlags.STDIN_PIPE | Gio.SubprocessFlags.STDOUT_PIPE)
+    launcher.setenv("AITERM_WINDOW", str(win.get_id()), True)
+    launcher.setenv("AITERM_BUS_NAME", app.get_dbus_connection().get_unique_name(), True)
+    launcher.setenv("AITERM_OBJECT_PATH", app.get_dbus_object_path(), True)
+    server = launcher.spawnv([os.path.join(ROOT, "bin", "aiterm-mcp")])
+    server_out = Gio.DataInputStream.new(server.get_stdout_pipe())
+    ids = iter(range(1, 1000))
+
+    def mcp(method, params, seconds=20):
+        id_ = next(ids)
+        line = json.dumps({"jsonrpc": "2.0", "id": id_, "method": method, "params": params}) + "\n"
+        server.get_stdin_pipe().write_all(line.encode(), None)
+        box = []
+        server_out.read_line_async(GLib.PRIORITY_DEFAULT, None,
+                                   lambda s, res: box.append(s.read_line_finish_utf8(res)[0]))
+        wait_for(lambda: box, seconds)
+        reply = json.loads(box[0]) if box and box[0] else {}
+        return reply.get("result", reply)
+
+    def tool(name, **arguments):
+        result = mcp("tools/call", {"name": name, "arguments": arguments})
+        return result.get("isError"), result.get("content", [{}])[0].get("text", ""), result.get(
+            "structuredContent", result)
+
+    mcp("initialize", {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "test"}})
+    check("the MCP server lists its tools inside aiterm", len(mcp("tools/list", {}).get("tools", [])) == 4)
+    error, text, data = tool("run_command", command="echo mcp-$((4*4))")
+    check("run_command runs in the user's terminal",
+          not error and data["output"] == "mcp-16" and data["exit_code"] == 0
+          and last().text == "echo mcp-$((4*4))", repr(data))
+    check("…and shows the model the folder and the command",
+          text == f"[terminal folder: {home}]\n$ echo mcp-$((4*4))\nmcp-16", repr(text))
+    error, text, data = tool("run_command", command="cd /tmp && false")
+    check("run_command reports the exit code and the new folder",
+          not error and data["exit_code"] == 1 and data["folder"] == "/tmp" and text.endswith("[exit code 1]"),
+          repr(text))
+    error, text, data = tool("get_cwd")
+    check("get_cwd returns the terminal's folder", not error and data == {"folder": "/tmp"}, repr(data))
+    error, text, data = tool("read_terminal", commands=2)
+    check("read_terminal returns the last commands",
+          [c["command"] for c in data.get("commands", [])] == ["echo mcp-$((4*4))", "cd /tmp && false"]
+          and "$ cd /tmp && false\n[exit code 1]" in text, repr(data))
+    error, text, data = tool("read_terminal", whole_screen=True)
+    check("read_terminal can read the whole screen", not error and "mcp-16" in data.get("screen", ""),
+          repr(text[-200:]))
+    term.feed_child(b"sleep 2\n")
+    wait_for(lambda: term.running_program() == "sleep")
+    error, text, data = tool("run_command", command="echo no")
+    check("run_command refuses while a program runs, as an error the model reads",
+          error and "«sleep» is running" in text, repr(text))
+    error, text, data = tool("wait_for_command", timeout=10)
+    check("wait_for_command waits for it", not error and data.get("command") == "sleep 2", repr(data))
+    error, text, data = tool("run_command", command="sleep 3; echo slow", timeout=1)
+    check("run_command returns on its timeout and says what to do",
+          not error and data.get("status") == "timeout" and "wait_for_command" in text, repr(text))
+    error, text, data = tool("wait_for_command", timeout=10)
+    check("…and wait_for_command gets the rest", not error and data.get("output") == "slow", repr(data))
+    term.feed_child(b"cd ~\n")
+    wait_for(lambda: last().text == "cd ~")
+    exited = []
+    server.wait_async(None, lambda p, res: exited.append(p.wait_finish(res)))
+    server.get_stdin_pipe().close(None)
+    check("the MCP server exits when agy closes its input", wait_for(lambda: exited, 5))
+
     term.feed_child(b"seq 300\n")
     wait_for(lambda: last().text == "seq 300")
     seq = last()
