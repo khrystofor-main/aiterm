@@ -714,6 +714,17 @@ def steps(app):
           wait_for(lambda: win.tabs.get_n_pages() == 1 and win.current_terminal() is term, 3))
     term.feed_child(b"\x03")  # Ctrl+C
     check("an idle shell is not a running program", wait_for(lambda: term.running_program() is None))
+    # A shell under a wrapper (as in the evals' sandbox, or toolbox): the
+    # spawned process is not the shell, yet an idle shell is still idle
+    from aiterm.terminal import BASH_INTEGRATION
+    wrapped = win.add_tab(argv=["/bin/sh", "-c", f"bash --rcfile {BASH_INTEGRATION}; true"])
+    wait_for(lambda: wrapped.command_log._prompt is not None)
+    check("a wrapped shell at its prompt is not a running program",
+          wait_for(lambda: wrapped.running_program() is None, 3), repr(wrapped.running_program()))
+    wrapped.feed_child(b"sleep 2\n")
+    check("…while its command is", wait_for(lambda: wrapped.running_program() == "sleep"))
+    wrapped.feed_child(b"\x03exit\n")
+    wait_for(lambda: win.tabs.get_n_pages() == 1)
 
     for action in ("shortcuts", "about"):
         app.activate_action(action, None)

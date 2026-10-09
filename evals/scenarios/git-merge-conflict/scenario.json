@@ -1,0 +1,6 @@
+{
+  "title": "Git merge conflict",
+  "category": "git",
+  "history": ["git merge feature"],
+  "prompt": "Finish this merge. Keep both changes: first my main line, then the feature line."
+}

@@ -59,6 +59,10 @@ echo "MCP server"
 "$ROOT/tests/mcp_protocol.py"; code=$?
 if [ $code = 0 ]; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
 
+echo "evals (scenarios and report, no agent)"
+"$ROOT/tests/eval_scenarios.py"; code=$?
+if [ $code = 0 ]; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
+
 echo "GTK app"
 "$ROOT/tests/gtk_smoke.py" 2> >(grep -v -e VK_SUBOPTIMAL -e '^$' >&2); code=$?
 case $code in

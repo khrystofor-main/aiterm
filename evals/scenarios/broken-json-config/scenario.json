@@ -1,0 +1,6 @@
+{
+  "title": "Broken JSON config",
+  "category": "config",
+  "history": ["python3 server.py"],
+  "prompt": "My server crashes on start. Fix it, keep my settings."
+}

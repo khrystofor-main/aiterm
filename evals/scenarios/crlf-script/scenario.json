@@ -1,0 +1,6 @@
+{
+  "title": "Script with Windows line endings",
+  "category": "files",
+  "history": ["./build.sh"],
+  "prompt": "I copied build.sh from my Windows laptop and now it won't run. Fix it and run it."
+}

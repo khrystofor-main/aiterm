@@ -151,6 +151,8 @@ class CommandLog:
         elif batch.started:
             self._running = (now, self._text)
         if batch.prompt:
+            if self._running is None:
+                self.terminal.remember_shell_group()
             self._prompt = batch.prompt
             self.prompt_rows.append(batch.prompt.row)
             del self.prompt_rows[:-MAX_COMMANDS]

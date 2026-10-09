@@ -1,0 +1,6 @@
+{
+  "title": "No permission to write logs",
+  "category": "permissions",
+  "history": ["python3 worker.py"],
+  "prompt": "The worker fails with a permission error. Fix it so it runs."
+}

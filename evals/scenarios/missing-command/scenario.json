@@ -1,0 +1,6 @@
+{
+  "title": "A program that is not installed (needs sudo)",
+  "category": "package",
+  "history": ["./banner.sh"],
+  "prompt": "banner.sh says command not found. What do I need to do?"
+}

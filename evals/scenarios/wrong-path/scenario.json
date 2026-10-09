@@ -1,0 +1,6 @@
+{
+  "title": "File is somewhere else",
+  "category": "typo",
+  "history": ["cat notes/todo.txt"],
+  "prompt": "Where is my todo list? Show me what's on it."
+}
