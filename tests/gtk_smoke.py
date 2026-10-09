@@ -63,10 +63,10 @@ def background(term):
     return round(c.red * 255), round(c.green * 255), round(c.blue * 255)
 
 
-def terminal_shortcuts(term):
-    """{trigger: Gtk.Shortcut} from the terminal's capture-phase controllers."""
+def capture_shortcuts(widget):
+    """{trigger: Gtk.Shortcut} from the widget's capture-phase controllers."""
     found = {}
-    controllers = term.observe_controllers()
+    controllers = widget.observe_controllers()
     for i in range(controllers.get_n_items()):
         c = controllers.get_item(i)
         if isinstance(c, Gtk.ShortcutController) and c.get_propagation_phase() == Gtk.PropagationPhase.CAPTURE:
@@ -126,7 +126,7 @@ def steps(app):
 
     check("copy is disabled without a selection",
           not term.actions.get_action_enabled("copy"))
-    keys = terminal_shortcuts(term)
+    keys = capture_shortcuts(term)
     ctrl_shift = {k: Gtk.ShortcutTrigger.parse_string(f"<Control><Shift>{k}").to_string() for k in "cva"}
     check("Ctrl+Shift+C/V/A are caught before VTE", set(ctrl_shift.values()) <= set(keys), str(list(keys)))
     copy_key = keys.get(ctrl_shift["c"])
@@ -147,6 +147,29 @@ def steps(app):
           wait_for(lambda: "pasted-42" in screen_text(term)))
     check("right-click menu has Copy, Paste, Select All",
           term.get_context_menu_model().get_n_items() == 3)
+
+    term.feed_child(b"cd /tmp\n")
+    check("terminal knows the shell's folder", wait_for(lambda: term.current_directory() == "/tmp"),
+          f"folder: {term.current_directory()!r}")
+    win_keys = capture_shortcuts(win)
+    check("Ctrl+Shift+T/W are caught before VTE",
+          {Gtk.ShortcutTrigger.parse_string(f"<Control><Shift>{k}").to_string() for k in "tw"} <= set(win_keys),
+          str(list(win_keys)))
+    shortcuts = win.tabs.get_shortcuts()
+    check("tab switching keys on, Ctrl+Home/End left to programs",
+          shortcuts & Adw.TabViewShortcuts.CONTROL_PAGE_DOWN and shortcuts & Adw.TabViewShortcuts.ALT_DIGITS
+          and not shortcuts & Adw.TabViewShortcuts.CONTROL_HOME)
+
+    win.activate_action("win.new-tab")
+    second = win.current_terminal()
+    check("new tab opens and is selected", win.tabs.get_n_pages() == 2 and second is not term)
+    wait_for(lambda: "$ " in screen_text(second))
+    second.feed_child(b"pwd\n")
+    check("new tab starts in the current tab's folder",
+          wait_for(lambda: "\n/tmp\n" in screen_text(second)), screen_text(second)[-200:])
+    win.activate_action("win.close-tab")
+    check("close tab goes back to the first one",
+          win.tabs.get_n_pages() == 1 and win.current_terminal() is term)
 
     closed = []
     win.connect("close-request", lambda *_: closed.append(True) and False)

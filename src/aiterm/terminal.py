@@ -2,7 +2,9 @@
 
 import os
 
-from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango, Vte
+from gi.repository import Adw, Gdk, Gio, GLib, GObject, Pango, Vte
+
+from aiterm.shortcuts import add_capture_shortcuts
 
 # Adwaita named colors, the same family GNOME apps use
 PALETTE = [
@@ -67,6 +69,7 @@ class Terminal(Vte.Terminal):
         self.connect("child-exited", lambda *_: self.emit("exited"))
         self._add_clipboard_actions()
 
+        self._pid = None
         self._spawn(cwd or GLib.get_home_dir())
 
     def title(self):
@@ -98,16 +101,12 @@ class Terminal(Vte.Terminal):
         copy.set_enabled(False)
         self.connect("selection-changed", lambda *_: copy.set_enabled(self.get_has_selection()))
 
-        # VTE turns every key it gets into terminal input, so the shortcuts are
-        # caught before it, in the capture phase. They always count as handled:
-        # Ctrl+Shift+C without a selection must not reach the shell as Ctrl+C
-        keys = Gtk.ShortcutController(propagation_phase=Gtk.PropagationPhase.CAPTURE)
-        for name, trigger in SHORTCUTS.items():
-            keys.add_shortcut(Gtk.Shortcut(
-                trigger=Gtk.ShortcutTrigger.parse_string(trigger),
-                action=Gtk.CallbackAction.new(self._shortcut, name),
-            ))
-        self.add_controller(keys)
+        # Without a selection Ctrl+Shift+C does nothing, rather than reaching
+        # the shell as Ctrl+C
+        add_capture_shortcuts(self, {
+            trigger: (lambda name=name: self._activate_if_enabled(name))
+            for name, trigger in SHORTCUTS.items()
+        })
 
         menu = Gio.Menu()
         menu.append("Copy", "term.copy")
@@ -115,10 +114,22 @@ class Terminal(Vte.Terminal):
         menu.append("Select All", "term.select-all")
         self.set_context_menu_model(menu)
 
-    def _shortcut(self, _widget, _args, name):
+    def _activate_if_enabled(self, name):
         if self.actions.get_action_enabled(name):
             self.actions.activate_action(name, None)
-        return True
+
+    def current_directory(self):
+        """The shell's folder: from OSC 7 (Ubuntu's bash sends it through
+        /etc/profile.d/vte-2.91.sh), else from /proc."""
+        uri = self.ref_termprop_uri(Vte.TERMPROP_CURRENT_DIRECTORY_URI)
+        if uri and uri.get_scheme() == "file":
+            return GLib.filename_from_uri(uri.to_string())[0]
+        if self._pid:
+            try:
+                return os.readlink(f"/proc/{self._pid}/cwd")
+            except OSError:
+                pass
+        return None
 
     def _spawn(self, cwd):
         shell = user_shell()
@@ -134,7 +145,8 @@ class Terminal(Vte.Terminal):
             self._on_spawned,
         )
 
-    def _on_spawned(self, _terminal, _pid, error, *_):
+    def _on_spawned(self, _terminal, pid, error, *_):
+        self._pid = pid if pid > 0 else None
         if error:
             self.feed(f"aiterm: could not start the shell: {error.message}\r\n".encode())
 

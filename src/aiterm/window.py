@@ -1,10 +1,24 @@
 """The main window: a header bar on top, terminal tabs below."""
 
-from gi.repository import Adw, Gtk
+from gi.repository import Adw, Gio, Gtk
 
+from aiterm.shortcuts import add_capture_shortcuts
 from aiterm.terminal import Terminal
 
 APP_NAME = "Aiterm"
+
+# win.* action -> key. Switching tabs (Ctrl+PgUp/PgDn, Ctrl+Tab, Alt+1…9,
+# Ctrl+Shift+PgUp/PgDn to move) comes with Adw.TabView
+SHORTCUTS = {
+    "new-tab": "<Control><Shift>t",
+    "close-tab": "<Control><Shift>w",
+}
+
+# Ctrl+Home/End belong to programs running in the terminal (editors, less)
+TAB_VIEW_SHORTCUTS = Adw.TabViewShortcuts.ALL_SHORTCUTS & ~(
+    Adw.TabViewShortcuts.CONTROL_HOME | Adw.TabViewShortcuts.CONTROL_END
+    | Adw.TabViewShortcuts.CONTROL_SHIFT_HOME | Adw.TabViewShortcuts.CONTROL_SHIFT_END
+)
 
 
 class Window(Adw.ApplicationWindow):
@@ -13,11 +27,13 @@ class Window(Adw.ApplicationWindow):
 
         self.header_title = Adw.WindowTitle(title=APP_NAME)
         header = Adw.HeaderBar(title_widget=self.header_title)
+        header.pack_start(Gtk.Button(
+            icon_name="tab-new-symbolic", action_name="win.new-tab", tooltip_text="New Tab",
+        ))
 
-        # Tabs are there from the start so new-tab and friends only add
-        # actions; the tab bar hides itself while there is a single tab
-        self.tabs = Adw.TabView()
-        self.tabs.connect("notify::selected-page", lambda *_: self._sync_title())
+        # The tab bar hides itself while there is a single tab
+        self.tabs = Adw.TabView(shortcuts=TAB_VIEW_SHORTCUTS)
+        self.tabs.connect("notify::selected-page", lambda *_: self._on_tab_selected())
         self.tabs.connect("close-page", self._on_close_page)
         tab_bar = Adw.TabBar(view=self.tabs, autohide=True)
 
@@ -26,7 +42,30 @@ class Window(Adw.ApplicationWindow):
         toolbar.add_top_bar(tab_bar)
         self.set_content(toolbar)
 
+        actions = {
+            "new-tab": self.new_tab,
+            "close-tab": self.close_tab,
+        }
+        for name, callback in actions.items():
+            action = Gio.SimpleAction.new(name, None)
+            action.connect("activate", lambda *_, callback=callback: callback())
+            self.add_action(action)
+        add_capture_shortcuts(self, {
+            trigger: (lambda name=name: self.activate_action(f"win.{name}"))
+            for name, trigger in SHORTCUTS.items()
+        })
+
         self.add_tab()
+
+    def new_tab(self):
+        """Opens a tab in the folder of the current one, like Ptyxis."""
+        current = self.current_terminal()
+        self.add_tab(current.current_directory() if current else None)
+
+    def close_tab(self):
+        page = self.tabs.get_selected_page()
+        if page:
+            self.tabs.close_page(page)
 
     def add_tab(self, cwd=None):
         terminal = Terminal(cwd)
@@ -46,6 +85,12 @@ class Window(Adw.ApplicationWindow):
     def _on_terminal_title(self, _terminal, title, page):
         page.set_title(title or "Terminal")
         self._sync_title()
+
+    def _on_tab_selected(self):
+        self._sync_title()
+        terminal = self.current_terminal()
+        if terminal:
+            terminal.grab_focus()
 
     def _sync_title(self):
         page = self.tabs.get_selected_page()
