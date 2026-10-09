@@ -52,6 +52,10 @@ def wait_for(predicate, timeout=10):
     return predicate()
 
 
+def spin(seconds):
+    wait_for(lambda: False, seconds)
+
+
 def screen_text(term):
     if hasattr(term, "get_text_format"):
         return term.get_text_format(Vte.Format.TEXT) or ""
@@ -145,8 +149,8 @@ def steps(app):
     term.feed_child(b"\n")
     check("paste types the clipboard into the shell",
           wait_for(lambda: "pasted-42" in screen_text(term)))
-    check("right-click menu has Copy, Paste, Select All",
-          term.get_context_menu_model().get_n_items() == 3)
+    edit = term.get_context_menu_model().get_item_link(0, "section")
+    check("right-click menu has Copy, Paste, Select All", edit and edit.get_n_items() == 3)
 
     term.feed_child(b"cd /tmp\n")
     check("terminal knows the shell's folder", wait_for(lambda: term.current_directory() == "/tmp"),
@@ -165,6 +169,24 @@ def steps(app):
     check("Ctrl+plus/minus/0 are caught before VTE",
           {"<Control>plus|<Control>equal|<Control>KP_Add", "<Control>minus|<Control>KP_Subtract",
            "<Control>0|<Control>KP_0"} <= set(win_keys))
+    # Row 0: a plain URL, row 1: an OSC 8 hyperlink labelled "docs"
+    term.feed_child(b"clear; echo 'see https://example.com/a?b=1.'; "
+                    b"printf '\\033]8;;https://osc8.example/\\033\\\\docs\\033]8;;\\033\\\\\\n'\n")
+    wait_for(lambda: "docs" in screen_text(term) and "see https" in screen_text(term))
+    spin(0.3)  # let VTE lay out the rows before asking about cells
+    cell = lambda col, row: (8 + (col + 0.5) * term.get_char_width(), 4 + (row + 0.5) * term.get_char_height())
+    check("a plain URL is a link, without the trailing dot",
+          term.link_at(*cell(10, 0)) == "https://example.com/a?b=1", repr(term.link_at(*cell(10, 0))))
+    check("an OSC 8 hyperlink is a link", term.link_at(*cell(1, 1)) == "https://osc8.example/",
+          repr(term.link_at(*cell(1, 1))))
+    check("plain text is not a link", term.link_at(*cell(1, 0)) is None)
+    menu = term.context_menu_at(*cell(10, 0))
+    check("right-click on a link offers Open / Copy Link",
+          menu.get_n_items() == 2 and menu.get_item_link(0, "section").get_n_items() == 2)
+    term.actions.activate_action("copy-link", None)
+    check("Copy Link copies the URL", clipboard_text(term) == "https://example.com/a?b=1")
+    check("right-click elsewhere has no link items", term.context_menu_at(*cell(1, 0)).get_n_items() == 1)
+
     term.feed_child(b"printf 'needle-%s\\n' 1 2 3\n")
     wait_for(lambda: "needle-3" in screen_text(term))
     win.activate_action("win.find")
