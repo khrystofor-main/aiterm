@@ -1,5 +1,9 @@
-"""The side panel where the agent works: agy in its own terminal, next to
-the user's.
+"""The side panel where the agent works, in one of two views
+(Preferences → Agent → View):
+
+- terminal: agy's own interface in a terminal next to the user's;
+- chat: a conversation drawn by the app (chat_view.py), with agy running
+  headless behind it (chat.py).
 
 agy gets AITERM_WINDOW, AITERM_BUS_NAME and AITERM_OBJECT_PATH, so the MCP
 server it starts (aiterm-mcp, from the aiterm plugin) reaches this window's
@@ -14,6 +18,9 @@ import shutil
 
 from gi.repository import Adw, Gtk
 
+from aiterm.chat import AgentProcess, chat_command
+from aiterm.chat_view import ChatView
+from aiterm.settings import Settings
 from aiterm.terminal import Terminal
 
 MIN_WIDTH = 240
@@ -35,13 +42,19 @@ class AgentPanel(Adw.Bin):
         super().__init__(width_request=MIN_WIDTH)
         self.add_css_class("view")
         self.window = window
-        self.terminal = None
+        self.terminal = None  # the terminal view's agy
+        self.chat = None  # the chat view
+        handler = Settings.get().connect("notify::agent-view", lambda *_: self.restart())
+        window.connect("destroy", lambda *_: self._on_window_destroyed(handler))
 
     def start(self):
         """Starts the agent unless it is running."""
-        if self.terminal:
+        if self.terminal or self.chat:
             return
         argv = agent_command()
+        chat = Settings.get().agent_view == "chat"
+        if chat:
+            argv = chat_command(argv)
         if argv is None or not shutil.which(argv[0]):
             self._show_status(
                 "Agent Not Found",
@@ -49,27 +62,50 @@ class AgentPanel(Adw.Bin):
                 f'<a href="{INSTALL_URL}">How to install agy</a>',
             )
             return
-        app = self.window.get_application()
         user_terminal = self.window.current_terminal()
-        self.terminal = Terminal(
-            cwd=user_terminal.current_directory() if user_terminal else None,
-            argv=argv,
-            env={
-                "AITERM_WINDOW": str(self.window.get_id()),
-                "AITERM_BUS_NAME": app.get_dbus_connection().get_unique_name(),
-                "AITERM_OBJECT_PATH": app.get_dbus_object_path(),
-                "PATH": f"{BIN}:{os.environ.get('PATH', '')}",
-            },
-        )
+        cwd = user_terminal.current_directory() if user_terminal else None
+        if chat:
+            self.chat = ChatView(AgentProcess(argv, cwd, self._environment()), self.window.approval)
+            self.set_child(self.chat)
+            return
+        self.terminal = Terminal(cwd=cwd, argv=argv, env=self._environment())
         self.terminal.connect("exited", lambda *_: self._on_exited())
         self.set_child(Gtk.ScrolledWindow(child=self.terminal, hscrollbar_policy=Gtk.PolicyType.NEVER))
+
+    def restart(self):
+        """Switching the view: the old agent goes, the new one starts if the
+        panel is open."""
+        if self.chat:
+            self.chat.process.stop()
+        self.terminal = self.chat = None
+        self.set_child(None)  # closing the terminal hangs up agy
+        if self.get_visible():
+            self.start()
+
+    def _on_window_destroyed(self, handler):
+        Settings.get().disconnect(handler)
+        if self.chat:
+            self.chat.process.stop()
+
+    def _environment(self):
+        app = self.window.get_application()
+        return {
+            "AITERM_WINDOW": str(self.window.get_id()),
+            "AITERM_BUS_NAME": app.get_dbus_connection().get_unique_name(),
+            "AITERM_OBJECT_PATH": app.get_dbus_object_path(),
+            "PATH": f"{BIN}:{os.environ.get('PATH', '')}",
+        }
 
     def focus(self):
         self.start()
         if self.terminal:
             self.terminal.grab_focus()
+        elif self.chat:
+            self.chat.focus()
 
     def has_focus(self):
+        if self.chat:
+            return self.chat.input.has_focus()
         return bool(self.terminal and self.terminal.has_focus())
 
     def _on_exited(self):

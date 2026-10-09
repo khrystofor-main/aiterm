@@ -9,7 +9,7 @@ gi.require_version("Vte", "3.91")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
 from aiterm import APP_ID, VERSION  # noqa: E402
-from aiterm import terminal, window  # noqa: E402
+from aiterm import chat_view, terminal, window  # noqa: E402
 from aiterm.dbus_api import TerminalApi  # noqa: E402
 from aiterm.preferences import PreferencesDialog  # noqa: E402
 from aiterm.window import Window  # noqa: E402
@@ -60,7 +60,7 @@ class Application(Adw.Application):
     def do_startup(self):
         Adw.Application.do_startup(self)
         css = Gtk.CssProvider()
-        css.load_from_string(CSS)
+        css.load_from_string(CSS + chat_view.CSS)
         Gtk.StyleContext.add_provider_for_display(
             Gdk.Display.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )

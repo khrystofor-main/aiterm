@@ -38,6 +38,7 @@ The agent is [Antigravity CLI](https://antigravity.google/docs/cli/install) (`ag
 
   How to use each tool well (check the exit code, no pagers, you type `sudo` passwords) is in the tool descriptions, which the model reads with the tools.
 - **The agy plugin** (`agy-plugin/`) bundles the server with a few rules (`rules/AGENTS.md`): run shell commands with `run_command`, not the agent's own hidden shell, and don't change your settings unasked. The rules are on only while the plugin is, and your own `~/.gemini/GEMINI.md` stays yours.
+- **Two views of the agent.** *Terminal* runs agy's own interface in the panel. *Chat* is drawn by the app (`src/aiterm/chat_view.py`): messages, collapsible command blocks with output and exit code, Run / Don't Run buttons, and the tokens each turn took. Behind it, `agy --input-format stream-json --output-format stream-json` keeps the conversation open and streams typed events (`src/aiterm/chat.py`). Pick one in Preferences → Agent.
 - **`aiterm-left` / `aiterm-run`** are the same API on the command line, for scripts and debugging.
 
 ## Safety model
@@ -69,7 +70,7 @@ The installer (no sudo) links the commands into `~/.local/bin`, adds **Aiterm** 
 
 ## Usage
 
-Open **Aiterm** from the menu (or run `aiterm`). Work in your shell; press **Alt+Enter** to talk to the agent and again to get back.
+Open **Aiterm** from the menu (or run `aiterm`). Work in your shell; press **Alt+Enter** to talk to the agent and again to get back. The panel shows agy's own interface; for the chat drawn by Aiterm, set Preferences → Agent → View to **Chat** (Enter sends, Shift+Enter adds a line).
 
 | Keys | Action |
 |---|---|
@@ -93,7 +94,7 @@ Before each command the agent runs, a bar above your terminal shows it with **Ru
 tests/run.sh
 ```
 
-The command-line tools' error handling, the installer (in a throwaway `HOME`) and the MCP server's protocol are checked on their own. Then `tests/gtk_smoke.py` opens the app with a real bash, under its own application ID, a temporary settings folder, and a plain bash standing in for the agent. It drives everything through the same paths a user and the agent use: commands and the command log, tabs, windows, clipboard, search, links, preferences, safe closing, notifications, the D-Bus API, every MCP tool through a real `aiterm-mcp` process, and `aiterm-run` typed in the agent panel running in the user's terminal. The smoke test needs a graphical session and is skipped without one.
+The command-line tools' error handling, the installer (in a throwaway `HOME`) and the MCP server's protocol are checked on their own. Then `tests/gtk_smoke.py` opens the app with a real bash, under its own application ID, a temporary settings folder, and a plain bash standing in for the agent. It drives everything through the same paths a user and the agent use: commands and the command log, tabs, windows, clipboard, search, links, preferences, safe closing, notifications, the D-Bus API, every MCP tool through a real `aiterm-mcp` process, the approval bar, `aiterm-run` typed in the agent panel running in the user's terminal, and the chat view with a fake agy (`tests/fake_agy.py`) that speaks the same NDJSON and calls the real tools. The smoke test needs a graphical session and is skipped without one.
 
 ## Limitations
 
@@ -107,7 +108,7 @@ The command-line tools' error handling, the installer (in a throwaway `HOME`) an
 - [x] **v0.2 — the terminal itself.** A native terminal app on Python + GTK4 + libadwaita + VTE, no AI yet: GNOME-style window with a header bar and tabs, themes and palettes, fonts, a settings window, shortcuts, copy/paste, search in output, clickable links, an app launcher. *Done when it replaces the default terminal for daily use.* ([plan](docs/v0.2-plan.md))
 - [x] **v0.3 — agent panel.** A side panel with `agy` inside the same window (toggle, resizable). No more tmux: the app itself reads the terminal and types commands, and `aiterm-left` / `aiterm-run` talk to the app. *Done when everything v0.1 does works in one window.* ([plan](docs/v0.3-plan.md))
 - [x] **v0.4 — own MCP server.** Terminal tools (`read_terminal`, `run_command`, `get_cwd`, …) exposed to the agent over MCP instead of shell scripts and prompt rules. Shell integration gives exact command boundaries and exit codes, so a custom `PS1` no longer matters. *Done when the agent uses the tools without instructions in `GEMINI.md`.* ([plan](docs/v0.4-plan.md))
-- [ ] **v0.5 — native chat UI** *(optional)*. The agent panel drawn by the app instead of agy's TUI: messages, collapsible command blocks, approval buttons, driven through `agy --output-format stream-json`.
+- [x] **v0.5 — native chat UI** *(optional)*. The agent panel drawn by the app instead of agy's TUI: messages, collapsible command blocks, approval buttons, driven through `agy --output-format stream-json`. ([plan](docs/v0.5-plan.md))
 - [ ] **v0.6 — evals.** A suite of broken-system scenarios (missing package, typo, broken config, missing permissions) run automatically in an isolated environment. Metrics: solved or not, steps, tokens. Results published in this README.
 - [ ] **v1.0 — release.** A `.deb` or Flatpak package, demo GIF, CI on GitHub Actions running the tests, a tagged release.
 

@@ -35,6 +35,7 @@ except (ImportError, ValueError) as e:
 import aiterm.window as window_module  # noqa: E402
 from aiterm import dbus_api  # noqa: E402
 from aiterm.application import Application  # noqa: E402
+from aiterm.chat_view import CommandRow, markdown_to_pango  # noqa: E402
 from aiterm.palettes import PALETTES  # noqa: E402
 from aiterm.preferences import PreferencesDialog  # noqa: E402
 from aiterm.settings import Settings  # noqa: E402
@@ -45,6 +46,8 @@ CONFIG_DIR = tempfile.mkdtemp(prefix="aiterm-test-")
 os.environ["AITERM_CONFIG_DIR"] = CONFIG_DIR
 # The agent panel runs a plain bash instead of agy: no login, no tokens
 os.environ["AITERM_AGENT"] = "/bin/bash --norc --noprofile"
+# …and the chat view a fake agy that speaks the same NDJSON (tests/fake_agy.py)
+os.environ["AITERM_CHAT_AGENT"] = f"{sys.executable} {os.path.join(ROOT, 'tests', 'fake_agy.py')}"
 results = []
 
 
@@ -101,6 +104,14 @@ def _finish_call(connection, result):
         return connection.call_finish(result).unpack()
     except GLib.Error as error:
         return error
+
+
+def widgets(box):
+    child, out = box.get_first_child(), []
+    while child:
+        out.append(child)
+        child = child.get_next_sibling()
+    return out
 
 
 def menu_labels(menu):
@@ -589,6 +600,66 @@ def steps(app):
               f"{settings.agent_panel_width}")
     else:
         print("  skip panel width: the window has no size (in the background)")
+
+    # The chat view, with the fake agy
+    settings.agent_view = "chat"
+    chat = win.agent_panel.chat
+    check("switching the view to Chat restarts the panel with the chat",
+          chat is not None and win.agent_panel.terminal is None and win.agent_panel.get_child() is chat)
+    check("the chat has no agent process until the first message", not chat.process.running)
+    texts = lambda: [w.get_label() for w in widgets(chat.messages) if isinstance(w, Gtk.Label)]
+    chat.input.get_buffer().set_text("hello")
+    chat.send()
+    check("a message starts the agent and shows the reply",
+          wait_for(lambda: any("1,234 tokens" in t for t in texts())) and "hello" in texts(), str(texts()))
+    check("the reply's Markdown is drawn", any("You said: <b>hello</b>" in t for t in texts()), str(texts()))
+    check("the input is empty again and Send is back", chat.text() == "" and chat.send_button.get_visible())
+
+    Settings.get().approve_agent_commands = True
+    chat.send("run: echo chat-$((5*5))")
+    rows = lambda: [w for w in widgets(chat.messages) if isinstance(w, CommandRow)]
+    check("run_command shows a command block", wait_for(lambda: rows()) and "$ echo chat-$((5*5))" in
+          rows()[0].expander.get_label_widget().get_last_child().get_label())
+    check("…with Run / Don't Run while it waits for approval",
+          wait_for(lambda: rows()[0].buttons.get_visible()) and win.approval.pending)
+    rows()[0].run_button.emit("clicked")
+    check("Run in the chat runs it in the user's terminal",
+          wait_for(lambda: last().text == "echo chat-$((5*5))") and last().output == "chat-25", repr(last()))
+    check("…and the block shows the output",
+          wait_for(lambda: rows()[0].output.get_label() == "chat-25") and not rows()[0].buttons.get_visible(),
+          rows()[0].output.get_label())
+    tool_lines = lambda: [w.label.get_label() for w in widgets(chat.messages) if hasattr(w, "label")]
+    check("agy's own tools are quiet lines; its reads of tool schemas are hidden",
+          wait_for(lambda: "Read hostname" in tool_lines()) and not any("json" in t for t in tool_lines()),
+          str(tool_lines()))
+    wait_for(lambda: not chat.process.busy)
+    chat.send("run: echo never")
+    wait_for(lambda: len(rows()) == 2 and rows()[1].buttons.get_visible())
+    rows()[1].skip_button.emit("clicked")
+    check("Don't Run marks the block as not run",
+          wait_for(lambda: rows()[1].status.has_css_class("error")) and "chose not to run" in rows()[1].status.get_label(),
+          rows()[1].status.get_label())
+    Settings.get().approve_agent_commands = False
+    wait_for(lambda: not chat.process.busy)
+
+    first_id = chat.process.conversation_id
+    chat.send("wait")
+    check("Stop shows while a turn runs", wait_for(lambda: chat.stop_button.get_visible()))
+    chat.stop_button.emit("clicked")
+    check("Stop ends the turn", wait_for(lambda: "Stopped." in texts()) and not chat.process.running, str(texts()))
+    chat.send("again")
+    check("the next message goes on with the same conversation",
+          wait_for(lambda: any("You said: <b>again</b>" in t for t in texts()))
+          and chat.process.conversation_id == first_id,
+          f"{chat.process.conversation_id} vs {first_id}")
+    wait_for(lambda: not chat.process.busy)
+    chat.send("crash")
+    check("an agent that dies says so", wait_for(lambda: any("stopped unexpectedly" in t and "something broke" in t
+                                                             for t in texts())), str(texts()[-2:]))
+    check("markdown_to_pango escapes and formats",
+          markdown_to_pango("a < b `x` **y**\n```sh\nls <dir>\n```") == "a &lt; b <tt>x</tt> <b>y</b>\n<tt>ls &lt;dir&gt;</tt>")
+    settings.agent_view = "terminal"
+    check("switching back to Terminal starts agy's terminal again", win.agent_panel.terminal is not None)
 
     app.activate_action("new-window", None)
     other = app.get_active_window()
