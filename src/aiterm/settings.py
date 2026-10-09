@@ -34,6 +34,8 @@ class Settings(GObject.Object):
     window_width = GObject.Property(type=int, default=960, minimum=200, maximum=20_000)
     window_height = GObject.Property(type=int, default=600, minimum=150, maximum=20_000)
     window_maximized = GObject.Property(type=bool, default=False)
+    agent_panel_visible = GObject.Property(type=bool, default=False)
+    agent_panel_width = GObject.Property(type=int, default=380, minimum=240, maximum=5_000)
 
     _instance = None
 

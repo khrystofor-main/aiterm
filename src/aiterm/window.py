@@ -2,6 +2,7 @@
 
 from gi.repository import Adw, Gio, GLib, Gtk
 
+from aiterm.agent_panel import AgentPanel
 from aiterm.search import SearchBar
 from aiterm.settings import Settings
 from aiterm.shortcuts import add_capture_shortcuts
@@ -16,6 +17,8 @@ SHORTCUTS = {
     "win.close-tab": "<Control><Shift>w",
     "app.new-window": "<Control><Shift>n",
     "win.find": "<Control><Shift>f",
+    # Alt+Enter switched between the shell and the agent in the tmux version
+    "win.agent-panel": "<Alt>Return",
     "app.preferences": "<Control>comma",
     "win.zoom-in": "<Control>plus|<Control>equal|<Control>KP_Add",
     "win.zoom-out": "<Control>minus|<Control>KP_Subtract",
@@ -95,6 +98,10 @@ class Window(Adw.ApplicationWindow):
             icon_name="open-menu-symbolic", menu_model=main_menu(), primary=True,
             tooltip_text="Main Menu",
         ))
+        header.pack_end(Gtk.ToggleButton(
+            icon_name="sidebar-show-right-symbolic", action_name="win.agent-panel",
+            tooltip_text="Agent Panel (Alt+Enter)",
+        ))
 
         # The tab bar hides itself while there is a single tab
         self.tabs = Adw.TabView(shortcuts=TAB_VIEW_SHORTCUTS)
@@ -102,7 +109,18 @@ class Window(Adw.ApplicationWindow):
         self.tabs.connect("close-page", self._on_close_page)
         tab_bar = Adw.TabBar(view=self.tabs, autohide=True)
 
-        toolbar = Adw.ToolbarView(content=self.tabs)
+        # Terminal on the left, the agent panel on the right; drag the border
+        # to resize. The panel keeps its width when the window is resized
+        self.agent_panel = AgentPanel()
+        self.agent_panel.set_visible(settings.agent_panel_visible)
+        self.paned = Gtk.Paned(
+            start_child=self.tabs, end_child=self.agent_panel,
+            resize_end_child=False, shrink_start_child=False, shrink_end_child=False,
+        )
+        self.paned.connect("notify::max-position", lambda *_: self._place_panel_border())
+        self.paned.connect("notify::position", lambda *_: self._save_panel_width())
+
+        toolbar = Adw.ToolbarView(content=self.paned)
         toolbar.add_top_bar(header)
         toolbar.add_top_bar(tab_bar)
         self.search = SearchBar(self.current_terminal)
@@ -121,6 +139,10 @@ class Window(Adw.ApplicationWindow):
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", lambda *_, callback=callback: callback())
             self.add_action(action)
+        panel = Gio.SimpleAction.new_stateful(
+            "agent-panel", None, GLib.Variant.new_boolean(settings.agent_panel_visible))
+        panel.connect("change-state", self._on_agent_panel_toggled)
+        self.add_action(panel)
         add_capture_shortcuts(self, {
             trigger: (lambda name=name: self.activate_action(name))
             for name, trigger in SHORTCUTS.items()
@@ -171,6 +193,32 @@ class Window(Adw.ApplicationWindow):
     def _on_terminal_title(self, _terminal, title, page):
         page.set_title(title or "Terminal")
         self._sync_title()
+
+    def _on_agent_panel_toggled(self, action, state):
+        action.set_state(state)
+        visible = state.get_boolean()
+        self.agent_panel.set_visible(visible)
+        Settings.get().agent_panel_visible = visible
+        if visible:
+            self._place_panel_border()
+
+    # The paned's position is the terminal's width; the panel takes the rest.
+    # max-position changes with the paned's size, so it doubles as a resize
+    # signal
+
+    def _place_panel_border(self):
+        """Gives the panel its saved width once the paned has a size."""
+        width = self.paned.get_width()
+        if self.agent_panel.get_visible() and width > 0:
+            self._placing = True
+            self.paned.set_position(width - Settings.get().agent_panel_width)
+            self._placing = False
+
+    def _save_panel_width(self):
+        width = self.paned.get_width()
+        if getattr(self, "_placing", False) or not self.agent_panel.get_visible() or width <= 0:
+            return
+        Settings.get().agent_panel_width = max(width - self.paned.get_position(), 240)
 
     def show_terminal(self, serial):
         """Selects the tab of the terminal with this serial and raises the window."""
