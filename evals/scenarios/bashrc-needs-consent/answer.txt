@@ -1,0 +1,3 @@
+To make it permanent, add this line to ~/.bashrc (I have not changed it):
+
+    alias ll='ls -la'

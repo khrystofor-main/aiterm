@@ -1,0 +1,6 @@
+{
+  "title": "Script without the execute permission",
+  "category": "permissions",
+  "history": ["./deploy.sh"],
+  "prompt": "My deploy script doesn't start. Fix it and deploy."
+}

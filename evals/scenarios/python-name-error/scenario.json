@@ -1,0 +1,6 @@
+{
+  "title": "Bug in a Python script",
+  "category": "code",
+  "history": ["python3 report.py"],
+  "prompt": "The report script fails. Fix it and show me the report."
+}

@@ -107,6 +107,9 @@ class Terminal(Vte.Terminal):
 
         self.serial = next(self._serials)  # names the terminal in notifications
         self._pid = None
+        # The shell's process group, seen at its first prompt: not the
+        # spawned pid when the shell runs under a wrapper (bwrap, toolbox)
+        self._shell_group = None
         self._spawn(cwd or GLib.get_home_dir(), argv or shell_command(), env or {})
 
     def title(self):
@@ -257,20 +260,29 @@ class Terminal(Vte.Terminal):
 
         The terminal's foreground process group is the shell's own while it
         waits for input, and the running job's while a command runs."""
-        pty = self.get_pty()
-        if not pty or not self._pid:
-            return None
-        try:
-            group = os.tcgetpgrp(pty.get_fd())
-        except OSError:
-            return None
-        if group == self._pid:
+        group = self._foreground_group()
+        if group is None or group in (self._pid, self._shell_group):
             return None
         try:
             with open(f"/proc/{group}/comm") as f:
                 return f.read().strip()
         except OSError:
             return "a program"
+
+    def _foreground_group(self):
+        pty = self.get_pty()
+        if not pty or not self._pid:
+            return None
+        try:
+            return os.tcgetpgrp(pty.get_fd())
+        except OSError:
+            return None
+
+    def remember_shell_group(self):
+        """Called by the command log at a prompt, when the shell itself is in
+        the foreground."""
+        if self._shell_group is None:
+            self._shell_group = self._foreground_group()
 
     def current_directory(self):
         """The shell's folder: from OSC 7 (Ubuntu's bash sends it through

@@ -18,8 +18,9 @@ AI terminal for Ubuntu: a GTK app with the user's shell in tabs and the `agy` ag
 - `src/aiterm/chat.py` + `src/aiterm/chat_view.py` — the Chat view of the agent panel (Preferences → Agent → View): agy with `--input-format/--output-format stream-json`, one process per conversation, resumed with `--conversation` after Stop. Tests use `tests/fake_agy.py` through `AITERM_CHAT_AGENT`. Plan: `docs/v0.5-plan.md`.
 - `src/aiterm/approval.py` — the bar above the terminal where the user approves each agent command (Run / Don't Run); `RunCommand` in `dbus_api.py` waits for it while the `approve_agent_commands` preference is on.
 - `src/aiterm/dbus_api.py` — the terminal API on the session bus (ReadCommands, ReadScreen, RunCommand, Wait); the agent's tools and later the MCP server are its clients. Plan: `docs/v0.3-plan.md`.
+- `evals/run.py` + `evals/scenarios/<name>/` (`scenario.json`, `setup.sh`, `check.sh`, `solution.sh`, `answer.txt`) — the evals: a real Aiterm window with a bwrap-sandboxed shell, one `agy -p` run with its own temp HOME (login files linked, aiterm plugin, only `mcp(aiterm_terminal/*)` allowed), then `check.sh`. Results in `evals/results/latest.json` and the README (`--update-readme`). Plan: `docs/v0.6-plan.md`. They use the user's agy quota: run them only when asked or when measuring a change.
 - `data/*.desktop.in` — the app's launcher; `install.sh` fills in `@BIN@`.
-- `tests/run.sh` — the tools' error handling, the installer in a throwaway HOME, the MCP protocol (`tests/mcp_protocol.py`), then `tests/gtk_smoke.py` (real window and bash, end to end; skipped without a display).
+- `tests/run.sh` — the tools' error handling, the installer in a throwaway HOME, the MCP protocol, the eval scenarios' checks (`tests/eval_scenarios.py`, no agent) (`tests/mcp_protocol.py`), then `tests/gtk_smoke.py` (real window and bash, end to end; skipped without a display).
 
 ## Working on it
 

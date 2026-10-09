@@ -1,0 +1,6 @@
+{
+  "title": "Typo in a command",
+  "category": "typo",
+  "history": ["gti log --oneline"],
+  "prompt": "Why did that fail? Run what I meant."
+}

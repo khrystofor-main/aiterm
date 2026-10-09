@@ -1,0 +1,6 @@
+{
+  "title": "Missing environment variable",
+  "category": "config",
+  "history": ["python3 fetch.py"],
+  "prompt": "fetch.py fails. Make it run in this terminal."
+}

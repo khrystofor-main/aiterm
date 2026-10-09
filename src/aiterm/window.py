@@ -82,7 +82,9 @@ def main_menu():
 
 
 class Window(Adw.ApplicationWindow):
-    def __init__(self, cwd=None, **kwargs):
+    def __init__(self, cwd=None, argv=None, **kwargs):
+        """`argv` runs instead of the user's shell in the first tab (the evals
+        run a sandboxed bash this way)."""
         # Opens at the size of the last window closed
         settings = Settings.get()
         super().__init__(
@@ -160,7 +162,7 @@ class Window(Adw.ApplicationWindow):
         self._closing_confirmed = False
         self.connect("close-request", lambda *_: self._on_close_request())
 
-        self.add_tab(cwd)
+        self.add_tab(cwd, argv)
         if self.agent_panel.get_visible():
             self.agent_panel.start()
 
@@ -179,8 +181,8 @@ class Window(Adw.ApplicationWindow):
         for terminal in self.terminals():
             terminal.set_font_scale(self.zoom)
 
-    def add_tab(self, cwd=None):
-        terminal = Terminal(cwd)
+    def add_tab(self, cwd=None, argv=None):
+        terminal = Terminal(cwd, argv)
         terminal.set_font_scale(self.zoom)
         scroller = Gtk.ScrolledWindow(child=terminal, hscrollbar_policy=Gtk.PolicyType.NEVER)
         page = self.tabs.append(scroller)
