@@ -22,6 +22,17 @@ TAB_VIEW_SHORTCUTS = Adw.TabViewShortcuts.ALL_SHORTCUTS & ~(
 )
 
 
+def confirm_dialog(heading, body, close_label):
+    """Cancel / <close_label>; responds "close" or "cancel"."""
+    dialog = Adw.AlertDialog(heading=heading, body=body)
+    dialog.add_response("cancel", "Cancel")
+    dialog.add_response("close", close_label)
+    dialog.set_response_appearance("close", Adw.ResponseAppearance.DESTRUCTIVE)
+    dialog.set_default_response("cancel")
+    dialog.set_close_response("cancel")
+    return dialog
+
+
 def main_menu():
     menu = Gio.Menu()
     windows = Gio.Menu()
@@ -73,6 +84,9 @@ class Window(Adw.ApplicationWindow):
             for name, trigger in SHORTCUTS.items()
         })
 
+        self._closing_confirmed = False
+        self.connect("close-request", lambda *_: self._on_close_request())
+
         self.add_tab(cwd)
 
     def new_tab(self):
@@ -96,6 +110,10 @@ class Window(Adw.ApplicationWindow):
         terminal.grab_focus()
         return terminal
 
+    def terminals(self):
+        pages = self.tabs.get_pages()
+        return [pages.get_item(i).get_child().get_child() for i in range(pages.get_n_items())]
+
     def current_terminal(self):
         page = self.tabs.get_selected_page()
         return page.get_child().get_child() if page else None
@@ -117,7 +135,40 @@ class Window(Adw.ApplicationWindow):
         self.set_title(title)
 
     def _on_close_page(self, view, page):
-        view.close_page_finish(page, True)
-        if view.get_n_pages() == 0:
+        program = page.get_child().get_child().running_program()
+        if not program:
+            self._finish_close_page(page, True)
+            return True  # handled
+        dialog = confirm_dialog(
+            "Close Tab?", f"“{program}” is still running in this tab. Closing the tab stops it.",
+            "Close Tab",
+        )
+        dialog.connect("response", lambda _d, response: self._finish_close_page(page, response == "close"))
+        dialog.present(self)
+        return True
+
+    def _finish_close_page(self, page, confirmed):
+        self.tabs.close_page_finish(page, confirmed)
+        if confirmed and self.tabs.get_n_pages() == 0:
             self.close()
-        return True  # handled
+
+    def _on_close_request(self):
+        """Asks before closing a window with programs still running in it."""
+        if self._closing_confirmed:
+            return False
+        running = [p for p in (t.running_program() for t in self.terminals()) if p]
+        if not running:
+            return False
+        names = ", ".join(f"“{p}”" for p in running)
+        dialog = confirm_dialog(
+            "Close Window?", f"Still running: {names}. Closing the window stops them.",
+            "Close Window",
+        )
+        dialog.connect("response", lambda _d, response: self._confirm_close_window(response == "close"))
+        dialog.present(self)
+        return True  # keep the window open for now
+
+    def _confirm_close_window(self, confirmed):
+        if confirmed:
+            self._closing_confirmed = True
+            self.close()
