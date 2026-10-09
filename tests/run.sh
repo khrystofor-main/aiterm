@@ -75,8 +75,8 @@ else
   echo "  skip package: no dpkg-deb"
 fi
 
-echo "effects"
-"$ROOT/tests/effects_unit.py"; code=$?
+echo "animations (presets and effects, no window)"
+"$ROOT/tests/animations_unit.py"; code=$?
 if [ $code = 0 ]; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
 
 echo "MCP server"

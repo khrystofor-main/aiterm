@@ -102,7 +102,7 @@ class Terminal(Vte.Terminal):
         self.connect("child-exited", self._on_child_exited)
         self.command_log = CommandLog(
             self, lambda c: self.emit("command-finished", c.exit_code, c.seconds))
-        self.effects = TerminalEffects(self, self.settings)
+        self.effects = TerminalEffects(self)
         self._add_clipboard_actions()
         self._add_links()
         self._add_file_drop()

@@ -35,6 +35,7 @@ except (ImportError, ValueError) as e:
 import aiterm.window as window_module  # noqa: E402
 from aiterm import dbus_api, effects  # noqa: E402
 from aiterm.application import Application  # noqa: E402
+from aiterm.animations import Animations  # noqa: E402
 from aiterm.chat_view import CommandRow, markdown_to_pango  # noqa: E402
 from aiterm.palettes import PALETTES  # noqa: E402
 from aiterm.preferences import PreferencesDialog  # noqa: E402
@@ -135,6 +136,44 @@ def clipboard_text(term):
     return box[0] if box else None
 
 
+def animations_page(page):
+    """Preferences → Animations, on a throwaway presets folder."""
+    engine, settings = Animations.get(), Settings.get()
+    settings.animation_preset = "subtle"
+    page.switch_row.set_active(False)
+    check("the Animations switch turns them off explicitly", settings.animations == "off" and not engine.enabled)
+    page.switch_row.set_active(True)
+    model = page.preset_row.get_model()
+    names = [model.get_string(i) for i in range(model.get_n_items())]
+    check("the built-in presets are offered", names[:2] == ["Subtle", "Expressive"], str(names))
+    row = page.effect_rows["shake"]
+    check("a built-in preset's rows are read-only",
+          not row.switch.get_sensitive() and not page.delete_button.get_sensitive())
+    preview = page.preview.effects
+    page.show_effect("shake")
+    check("Show plays the effect in the preview", len(preview.shakes) == 1, str(preview.shakes))
+    page.duplicate_button.emit("clicked")
+    preset = engine.preset
+    check("Duplicate makes an editable copy and picks it",
+          not preset.builtin and wait_for(lambda: row.switch.get_sensitive(), 2) and page.delete_button.get_sensitive(),
+          preset.key)
+    row.scale.set_value(1.5)
+    row.switch.set_active(False)
+    with open(preset.path) as f:
+        saved = json.load(f)
+    check("rows change the copy's file", saved.get("effects", {}).get("shake") == {"intensity": 1.5, "enabled": False},
+          str(saved))
+    check("…and what the effects read", engine.effect("shake") is None)
+    with open(preset.path, "w") as f:
+        f.write('{"base": "subtle", "effects": {"shake": {"amplitude": "huge"}}}')
+    check("a hand-edited file applies at once, problems shown on the page",
+          wait_for(lambda: page.warning_row.get_visible(), 3) and "amplitude" in page.warning_row.get_subtitle(),
+          page.warning_row.get_subtitle())
+    engine.delete(preset.key)
+    check("Delete goes back to the built-in preset", wait_for(lambda: page.preset_row.get_selected() == 0, 2)
+          and settings.animation_preset == "subtle")
+
+
 def run(app):
     try:
         steps(app)
@@ -191,38 +230,44 @@ def steps(app):
     check("after clear, the view's top row is the new prompt's", ok,
           f"top {term.top_row()} prompt {log.input_row} offset {term.row_offset()}")
 
-    # Effects (effects.py), on a clock moved by hand
+    # Effects (effects.py), on a clock moved by hand. Animations are on
+    # explicitly: GTK's own are off for this test (see the top)
+    Settings.get().animations = "on"
+    shake_ms = Animations.get().effect("shake")["duration"]
+    stripe_ms = Animations.get().effect("stripe")["duration"]
     fx = term.effects
     now = [0.0]
     fx.clock = lambda: now[0]
     fx.clear()
     term.feed_child(b"ls /no-such-folder\n")
     ok = wait_for(lambda: last().text == "ls /no-such-folder" and fx.shakes)
-    check("a failed command's line shakes", ok and fx.shakes[0][0] == last().input_row,
-          f"{fx.shakes} {last()}")
+    rows = lambda running: [(r.first, r.last) for r in running]
+    check("a failed command's line shakes", ok and fx.shakes[0].first == last().input_row,
+          f"{rows(fx.shakes)} {last()}")
     check("…its output gets a stripe",
-          any(first <= last().input_row + 1 <= l for first, l, _ in fx.stripes), f"{fx.stripes} {last()}")
-    check("…not the command's own line", all(first > last().input_row for first, _, _ in fx.stripes),
-          str(fx.stripes))
-    now[0] += effects.SHAKE_MS
+          any(r.first <= last().input_row + 1 <= r.last for r in fx.stripes), f"{rows(fx.stripes)} {last()}")
+    check("…not the command's own line", all(r.first > last().input_row for r in fx.stripes),
+          str(rows(fx.stripes)))
+    now[0] += shake_ms
     fx.prune()
-    check("the shake is over after its time", not fx.shakes and fx.stripes, f"{fx.shakes} {fx.stripes}")
-    now[0] += effects.STRIPE_MS
-    check("…and the stripe has faded", wait_for(lambda: not fx.active(), 2), str(fx.stripes))
+    check("the shake is over after its time", not fx.shakes and fx.stripes, f"{rows(fx.shakes)} {rows(fx.stripes)}")
+    now[0] += stripe_ms
+    check("…and the stripe has faded", wait_for(lambda: not fx.active(), 2), str(rows(fx.stripes)))
     for command in (b"grep -q nothing /dev/null\n", b"sh -c 'kill -INT $$'\n"):
         term.feed_child(command)
         wait_for(lambda: last().text == command.decode().strip())
-    check("no shake for grep's 'no match' or Ctrl+C", not fx.shakes, f"{fx.shakes} {last()}")
+    check("no shake for grep's 'no match' or Ctrl+C", not fx.shakes, f"{rows(fx.shakes)} {last()}")
     term.feed_child(b"for i in 1 2 3; do echo line $i; sleep 0.3; done\n")
     ok = wait_for(lambda: len(fx.stripes) >= 2 and log.running, 3)
-    check("output of a running command lights up as it comes", ok, str(fx.stripes))
+    check("output of a running command lights up as it comes", ok, str(rows(fx.stripes)))
     wait_for(lambda: not log.running)
-    Settings.get().animations = False
+    Settings.get().animations = "off"
     term.feed_child(b"false\n")
     wait_for(lambda: last().text == "false" and not log.running)
     spin(0.3)
-    check("with animations off, nothing animates", not fx.active(), f"{fx.shakes} {fx.stripes}")
-    Settings.get().animations = True
+    fx.prune()  # what the next frame does
+    check("with animations off, nothing animates", not fx.active(), f"{rows(fx.shakes)} {rows(fx.stripes)}")
+    Settings.get().animations = "on"
     fx.clock = effects._monotonic_ms
 
     # The agent's API, called over D-Bus like the tools do
@@ -473,6 +518,7 @@ def steps(app):
         check("the dialog switches back to the system font", settings.use_system_font)
         dialog.approve_row.set_active(True)
         check("the dialog turns command approval on", settings.approve_agent_commands)
+        animations_page(dialog.animations_page)
         dialog.force_close()
     for key in settings.keys():  # back to defaults for the rest of the test
         settings.set_property(key, settings.find_property(key.replace("_", "-")).get_default_value())

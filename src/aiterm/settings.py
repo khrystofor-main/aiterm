@@ -14,6 +14,7 @@ from aiterm.palettes import DEFAULT_PALETTE, PALETTES
 
 CURSOR_SHAPES = ("block", "ibeam", "underline")
 AGENT_VIEWS = ("terminal", "chat")
+ANIMATIONS = ("auto", "on", "off")
 
 
 def config_dir():
@@ -31,8 +32,10 @@ class Settings(GObject.Object):
     cursor_blink = GObject.Property(type=bool, default=True)
     audible_bell = GObject.Property(type=bool, default=False)
     notify_long_commands = GObject.Property(type=bool, default=True)
-    # Effects over the terminal (effects.py)
-    animations = GObject.Property(type=bool, default=True)
+    # "auto" follows GNOME's Reduce Animations until the user picks "on" or
+    # "off"; the preset is a key of animations.Animations.presets
+    animations = GObject.Property(type=str, default="auto")
+    animation_preset = GObject.Property(type=str, default="subtle")
     # The agent's commands wait for Run in the approval bar (approval.py)
     approve_agent_commands = GObject.Property(type=bool, default=True)
     # agy's own interface in a terminal, or the app's chat (agent_panel.py)
@@ -79,6 +82,8 @@ class Settings(GObject.Object):
             self.cursor_shape = "block"
         if self.agent_view not in AGENT_VIEWS:
             self.agent_view = "terminal"
+        if self.animations not in ANIMATIONS:
+            self.animations = "auto"
 
     def save(self):
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
