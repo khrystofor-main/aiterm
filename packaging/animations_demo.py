@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Records a short GIF of the terminal effects (effects.py): output with its
-fading stripe, then a failed command whose line shakes. Frames are snapshots
+fading stripe, a failed command whose line shakes and gets its ✗, then the
+colors blending into the light style. Frames are snapshots
 of the window, taken as fast as the effects run, so the GIF shows each frame
 of the animation; no agent involved.
 
@@ -34,6 +35,7 @@ from PIL import Image  # noqa: E402
 
 from aiterm.application import Application  # noqa: E402
 from aiterm.settings import Settings  # noqa: E402
+from aiterm.terminal import BASH_INTEGRATION  # noqa: E402
 from aiterm.window import Window  # noqa: E402
 
 OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "docs", "animations.gif")
@@ -122,15 +124,22 @@ def demo(app):
     Gtk.Settings.get_default().set_property("gtk-decoration-layout", "")  # no window buttons
     Settings.get().agent_panel_visible = False
     Settings.get().animations = "on"  # whatever the display says about Reduce Animations
+    Settings.get().animations_hint_shown = True  # no toast over the terminal
     for w in app.get_windows():
         w.destroy()
-    window = Window(application=app)
+    # A shell without the user's ~/.bashrc, in an empty project folder
+    home = tempfile.mkdtemp(prefix="aiterm-demo-home-")
+    os.makedirs(os.path.join(home, "project"))
+    window = Window(application=app, cwd=os.path.join(home, "project"),
+                    argv=["env", f"HOME={home}", "bash", "--rcfile", BASH_INTEGRATION])
     window.set_default_size(WIDTH, HEIGHT)
     window.present()
     terminal = window.current_terminal()
+    terminal.effects.window_active = lambda: True  # the headless display gives no focus
+    terminal.title = lambda: "~/project"  # not bash's user@host
     # A plain prompt instead of the user's own
     record(window, 1.0, until=lambda: terminal.command_log.input_row is not None)
-    terminal.feed_child(b" PS1='\\[\\e[1;34m\\]~/project\\[\\e[0m\\]$ '; printf '\\e]0;Terminal\\a'; clear\n")
+    terminal.feed_child(b" PS1='\\[\\e[1;34m\\]\\w\\[\\e[0m\\]$ '; clear\n")
     record(window, 1.0)
     frames.clear()
     record(window, 0.6)
@@ -141,6 +150,9 @@ def demo(app):
     type_text(window, terminal, "ls missing-folder")
     terminal.feed_child(b"\n")
     record(window, 2.0)
+    # The light style: the terminal's colors blend over
+    Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.FORCE_LIGHT)
+    record(window, 1.5)
 
 
 

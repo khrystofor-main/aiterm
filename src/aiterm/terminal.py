@@ -44,6 +44,11 @@ def _rgba(spec):
     return color
 
 
+def _same_colors(a, b):
+    flat = lambda colors: [c.to_string() for c in colors[:2] + tuple(colors[2])]
+    return flat(a) == flat(b)
+
+
 # Loaded instead of ~/.bashrc (it loads that itself), see the file
 BASH_INTEGRATION = os.path.join(os.path.dirname(__file__), "shell", "integration.bash")
 
@@ -77,6 +82,8 @@ class Terminal(Vte.Terminal):
         self.set_mouse_autohide(True)
 
         self.settings = Settings.get()
+        self._colors = None  # (foreground, background, palette) last set
+        self.effects = TerminalEffects(self)
         self._interface = self._interface_settings()
         self._handlers = []
         self._appliers = {
@@ -102,7 +109,6 @@ class Terminal(Vte.Terminal):
         self.connect("child-exited", self._on_child_exited)
         self.command_log = CommandLog(
             self, lambda c: self.emit("command-finished", c.exit_code, c.seconds))
-        self.effects = TerminalEffects(self)
         self._add_clipboard_actions()
         self._add_links()
         self._add_file_drop()
@@ -378,10 +384,35 @@ class Terminal(Vte.Terminal):
         self._handlers = []
         Vte.Terminal.do_unroot(self)
 
-    def _apply_colors(self):
+    def _colors_for(self, dark):
         palette = PALETTES[self.settings.palette]
-        fg, bg = palette.dark if Adw.StyleManager.get_default().get_dark() else palette.light
-        self.set_colors(_rgba(fg), _rgba(bg), [_rgba(c) for c in palette.colors])
+        fg, bg = palette.dark if dark else palette.light
+        return _rgba(fg), _rgba(bg), [_rgba(c) for c in palette.colors]
+
+    def _apply_colors(self):
+        """Sets the palette's colors; a change is animated (effects.py)."""
+        new = self._colors_for(Adw.StyleManager.get_default().get_dark())
+        old, self._colors = self._colors, new
+        if old is None or _same_colors(old, new) or not self.effects.blend_colors(old, new, self._set_colors):
+            self._set_colors(new)
+
+    def _set_colors(self, colors):
+        fg, bg, palette = colors
+        self.set_colors(fg, bg, palette)
+
+    def show_color_change(self):
+        """Moves to the other light/dark style's colors and back (a preview)."""
+        other = self._colors_for(not Adw.StyleManager.get_default().get_dark())
+        self.effects.blend_colors(self._colors, other, self._set_colors, force=True)
+
+        def back():
+            self.effects.blend_colors(other, self._colors, self._set_colors, force=True)
+            return GLib.SOURCE_REMOVE
+        GLib.timeout_add(1000, back)
+
+    def palette_color(self, index):
+        """One of the palette's 16 colors, e.g. 1 for red, 2 for green."""
+        return _rgba(PALETTES[self.settings.palette].colors[index])
 
     def _apply_behavior(self):
         s = self.settings

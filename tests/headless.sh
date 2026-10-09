@@ -19,6 +19,8 @@ export XDG_RUNTIME_DIR=$runtime
 gnome-shell --headless --wayland --no-x11 --virtual-monitor 1600x1000 \
   --wayland-display aiterm-headless >"$runtime/shell.log" 2>&1 &
 shell=$!
+trap 'kill $shell 2>/dev/null; rm -rf "$runtime"' EXIT
+trap 'exit 143' TERM INT
 for _ in $(seq 100); do
   [ -S "$runtime/aiterm-headless" ] && break
   sleep 0.1
@@ -26,12 +28,7 @@ done
 if [ ! -S "$runtime/aiterm-headless" ]; then
   echo "headless.sh: GNOME Shell did not start:" >&4
   tail -5 "$runtime/shell.log" >&4
-  kill $shell 2>/dev/null
   exit 1
 fi
 WAYLAND_DISPLAY=aiterm-headless GDK_BACKEND=wayland "$@" >&3 2>&4
-code=$?
-kill $shell
-wait $shell 2>/dev/null
-rm -rf "$runtime"
-exit $code
+exit

@@ -17,6 +17,7 @@ import gi  # noqa: E402
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
+gi.require_version("Vte", "3.91")
 from aiterm import animations, effects  # noqa: E402
 from aiterm.animations import BUILTIN, Animations, load_preset_file, parse_preset, progress  # noqa: E402
 from aiterm.settings import Settings  # noqa: E402
@@ -52,6 +53,17 @@ crossings = lambda cycles: sum(1 for i in range(100) if (effects.shake_offset(i 
 check("…more cycles, more swings", crossings(5) > crossings(3), (crossings(3), crossings(5)))
 check("the stripe fades from full to nothing",
       effects.fade(0) == 1 and effects.fade(1) == 0 and effects.fade(0.5) < 0.5, [effects.fade(t) for t in (0, .5, 1)])
+
+# Color changes keep the text readable
+rgba = lambda spec: (lambda c: (c.parse(spec), c)[1])(effects.Gdk.RGBA())
+dark = (rgba("#ffffff"), rgba("#1d1d20"), [rgba("#c01c28")])
+light = (rgba("#1e1e1e"), rgba("#ffffff"), [rgba("#ed333b")])
+worst = min(effects.contrast(fg, bg) for fg, bg, _ in (effects.blend_colors(dark, light, i / 20) for i in range(21)))
+check("from dark to light the text stays readable all the way", worst >= 3, worst)
+middle = effects.blend_colors(dark, light, 0.5)
+check("…while the background moves evenly", 0.4 < middle[1].red < 0.6, middle[1].to_string())
+check("…and so does the palette", abs(middle[2][0].red - (rgba("#c01c28").red + rgba("#ed333b").red) / 2) < 0.01)
+check("the contrast of black on white is 21", round(effects.contrast(rgba("#000000"), rgba("#ffffff"))) == 21)
 
 # What counts as a failure
 for text, program in [("ls -l", "ls"), ("make 2>&1 | grep error", "grep"), ("LC_ALL=C /usr/bin/diff a b", "diff"),

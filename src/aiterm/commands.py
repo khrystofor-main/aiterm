@@ -95,6 +95,16 @@ class CommandLog:
         return self._running is not None
 
     @property
+    def running_since(self):
+        """When the running command started (time.monotonic()), or None."""
+        return self._running[0] if self._running else None
+
+    @property
+    def running_text(self):
+        """The running command as the shell reported it, or None."""
+        return self._running[1] if self._running else None
+
+    @property
     def input_row(self):
         """The row the running or next command is typed on, or None."""
         return self._prompt.input_row if self._prompt else None

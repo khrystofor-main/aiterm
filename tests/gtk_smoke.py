@@ -150,8 +150,10 @@ def animations_page(page):
     check("a built-in preset's rows are read-only",
           not row.switch.get_sensitive() and not page.delete_button.get_sensitive())
     preview = page.preview.effects
-    page.show_effect("shake")
-    check("Show plays the effect in the preview", len(preview.shakes) == 1, str(preview.shakes))
+    for effect in ("shake", "fail_mark", "theme"):
+        page.show_effect(effect)
+    check("Show plays the effects in the preview",
+          len(preview.shakes) == 1 and len(preview.marks) == 1 and preview.blend is not None)
     page.duplicate_button.emit("clicked")
     preset = engine.preset
     check("Duplicate makes an editable copy and picks it",
@@ -238,6 +240,7 @@ def steps(app):
     fx = term.effects
     now = [0.0]
     fx.clock = lambda: now[0]
+    fx.window_active = lambda: True  # whatever the test display says
     fx.clear()
     term.feed_child(b"ls /no-such-folder\n")
     ok = wait_for(lambda: last().text == "ls /no-such-folder" and fx.shakes)
@@ -248,6 +251,13 @@ def steps(app):
           any(r.first <= last().input_row + 1 <= r.last for r in fx.stripes), f"{rows(fx.stripes)} {last()}")
     check("…not the command's own line", all(r.first > last().input_row for r in fx.stripes),
           str(rows(fx.stripes)))
+    check("…which turns red as the command failed", all(r.color == "error" for r in fx.stripes),
+          str([r.color for r in fx.stripes]))
+    check("…and the line gets ✗ with the exit code, sliding in",
+          [(m.first, m.code) for m in fx.marks] == [(last().input_row, 2)] and fx.marks[0].started == now[0],
+          str([(m.first, m.code, m.started) for m in fx.marks]))
+    check("the first failed command ever shows where animations are set up",
+          Settings.get().animations_hint_shown)
     now[0] += shake_ms
     fx.prune()
     check("the shake is over after its time", not fx.shakes and fx.stripes, f"{rows(fx.shakes)} {rows(fx.stripes)}")
@@ -257,18 +267,78 @@ def steps(app):
         term.feed_child(command)
         wait_for(lambda: last().text == command.decode().strip())
     check("no shake for grep's 'no match' or Ctrl+C", not fx.shakes, f"{rows(fx.shakes)} {last()}")
+    fx.clear()
     term.feed_child(b"for i in 1 2 3; do echo line $i; sleep 0.3; done\n")
     ok = wait_for(lambda: len(fx.stripes) >= 2 and log.running, 3)
     check("output of a running command lights up as it comes", ok, str(rows(fx.stripes)))
+    check("…in the accent color while it runs", all(r.color is None for r in fx.stripes),
+          str([(r.first, r.last, r.color) for r in fx.stripes]))
     wait_for(lambda: not log.running)
+    check("…then green, as it succeeded", fx.stripes and all(r.color == "success" for r in fx.stripes)
+          and not fx.marks, str([r.color for r in fx.stripes]))
+    fx.clear()
+
+    term.feed_child(b"seq 1 200000\n")
+    wait_for(lambda: last().text == "seq 1 200000", 20)
+    check("output flooding in gets no stripe", all(r.last - r.first < 50 for r in fx.stripes)
+          and not any(r.last >= last().end_row - 5 for r in fx.stripes), str(rows(fx.stripes)))
+    # The alternate screen numbers its rows on its own: in a new tab they come
+    # after the command's, as if they were its output
+    fresh = win.add_tab()
+    wait_for(lambda: fresh.command_log.input_row is not None, 10)
+    fresh.effects.window_active = lambda: True
+    fresh.feed_child(b"printf '\\e[?1049h'; for i in 1 2 3 4 5 6; do echo full $i; sleep 0.3; done; "
+                     b"printf '\\e[?1049l'\n")
+    wait_for(lambda: fresh.command_log.running, 3)
+    spin(0.6)
+    check("full-screen programs (the alternate screen) get no stripes",
+          fresh.command_log.running and not fresh.effects.stripes, str(rows(fresh.effects.stripes)))
+    wait_for(lambda: not fresh.command_log.running)
+    win.tabs.close_page(win.tabs.get_page(fresh.get_parent()))
+    wait_for(lambda: win.tabs.get_n_pages() == 1)
+    fx.clear()
+    remote = os.path.join(CONFIG_DIR, "ssh")
+    with open(remote, "w") as f:
+        f.write("#!/bin/bash\nfor i in 1 2 3 4 5 6; do echo remote $i; sleep 0.3; done\n")
+    os.chmod(remote, 0o755)
+    term.feed_child(f"{remote}\n".encode())
+    wait_for(lambda: log.running, 3)
+    spin(0.5)
+    check("nor does ssh", log.running and term.running_program() == "ssh" and not fx.stripes,
+          f"{term.running_program()} {rows(fx.stripes)}")
+    wait_for(lambda: not log.running)
+
+    fx.clear()
+    fx.window_active = lambda: False
+    term.feed_child(b"false\n")
+    wait_for(lambda: last().text == "false" and fx.marks)
+    check("in a background window nothing moves, the ✗ is just there",
+          not fx.shakes and not fx.stripes and fx.marks and fx.marks[0].started is None,
+          f"{rows(fx.shakes)} {[(m.first, m.started) for m in fx.marks]}")
+    fx.window_active = lambda: True
+
+    old_background, old_palette = background(term), Settings.get().palette
+    Settings.get().palette = "Solarized"
+    check("a palette change is animated", fx.blend is not None and background(term) == old_background)
+    now[0] += Animations.get().effect("theme")["duration"] / 2
+    fx.prune()
+    check("…passing through the colors in between", background(term) not in (old_background, (0, 43, 54)),
+          str(background(term)))
+    now[0] += Animations.get().effect("theme")["duration"]
+    fx.prune()
+    check("…and ends on the new palette", fx.blend is None and background(term) == (0, 43, 54),
+          str(background(term)))
+    Settings.get().palette = old_palette
+    now[0] += 10_000
+    fx.prune()
     Settings.get().animations = "off"
     term.feed_child(b"false\n")
     wait_for(lambda: last().text == "false" and not log.running)
     spin(0.3)
     fx.prune()  # what the next frame does
     check("with animations off, nothing animates", not fx.active(), f"{rows(fx.shakes)} {rows(fx.stripes)}")
-    Settings.get().animations = "on"
     fx.clock = effects._monotonic_ms
+    fx.clear()
 
     # The agent's API, called over D-Bus like the tools do
     def call(method, args, signature, reply_type, seconds=15):
