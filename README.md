@@ -44,6 +44,7 @@ The agent is [Antigravity CLI](https://antigravity.google/docs/cli/install) (`ag
 
 | Risk | What aiterm does |
 |---|---|
+| Agent runs a command you didn't want | Each command waits for **Run** in a bar above your terminal (**Don't Run** declines). The check is in the app, so no prompt or agent setting can skip it; turn it off in Preferences → Agent for hands-free use |
 | Agent types over your half-written command | `run_command` checks that the prompt line is empty and no program is running; otherwise it refuses and tells the agent why |
 | Agent runs `sudo` behind your back | Before any agent command with `sudo`, cached credentials are dropped (`sudo -K`), so **every** such command needs your password, typed in your terminal |
 | Agent hangs on `less`, `vim`, `[Y/n]` | Timeouts with partial output; the tool descriptions ban pagers and full-screen programs |
@@ -51,7 +52,7 @@ The agent is [Antigravity CLI](https://antigravity.google/docs/cli/install) (`ag
 | Agent edits your configs "to help" | The plugin's rules forbid changing system/user settings without explicit consent |
 | You don't see what the agent does | Every shell command runs in your terminal, visible and in your history |
 
-Rules and tool descriptions are instructions to a model, not hard guarantees; the `sudo` guard and the busy-terminal checks are enforced in code.
+Rules and tool descriptions are instructions to a model, not hard guarantees; the approval bar, the `sudo` guard and the busy-terminal checks are enforced in code.
 
 ## Install
 
@@ -64,7 +65,7 @@ cd aiterm
 ./install.sh
 ```
 
-The installer (no sudo) links the commands into `~/.local/bin`, adds **Aiterm** to the applications menu, links the agy plugin into `~/.gemini/config/plugins/aiterm`, and lets `agy` use the read-only tools without asking. Run it again after `git pull` to update (it also moves the rules of older versions out of `~/.gemini/GEMINI.md`); `./uninstall.sh` removes everything it added. There is no build step: the app runs from the repository.
+The installer (no sudo) links the commands into `~/.local/bin`, adds **Aiterm** to the applications menu, links the agy plugin into `~/.gemini/config/plugins/aiterm`, and lets `agy` call the terminal tools without its own prompt (the app asks before each command instead). Run it again after `git pull` to update (it also moves the rules of older versions out of `~/.gemini/GEMINI.md`); `./uninstall.sh` removes everything it added. There is no build step: the app runs from the repository.
 
 ## Usage
 
@@ -84,7 +85,7 @@ Open **Aiterm** from the menu (or run `aiterm`). Work in your shell; press **Alt
 
 Also: Ctrl+click opens links, right-click on a command's output → **Copy Output**, dropped files are typed as quoted paths, and a desktop notification tells you when a long command finishes in a background tab. Preferences are saved in `~/.config/aiterm/settings.json`.
 
-Tip: `agy` asks before every `run_command`. To make it fully hands-free, set **Tool Permission → always-proceed** in `agy`'s `/config`; the `sudo` guard keeps working.
+Before each command the agent runs, a bar above your terminal shows it with **Run** and **Don't Run**. For fully hands-free use, turn off **Ask Before the Agent Runs a Command** in Preferences → Agent; the `sudo` guard keeps working.
 
 ## Tests
 

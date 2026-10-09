@@ -18,6 +18,7 @@ import subprocess
 from gi.repository import Gio, GLib, Vte
 
 from aiterm import TERMINAL_INTERFACE as INTERFACE
+from aiterm.settings import Settings
 ERROR_NO_WINDOW = "io.github.khrystofor_main.Aiterm.Error.NoWindow"
 
 XML = f"""
@@ -100,12 +101,36 @@ class TerminalApi:
         invocation.return_value(GLib.Variant("(ss)", (folder(terminal), (text or "").rstrip("\n"))))
 
     def _RunCommand(self, invocation, terminal, command, timeout):
+        if self._refuse(invocation, terminal):
+            return
+        approval = terminal.get_root().approval
+        if not Settings.get().approve_agent_commands:
+            return self._type(invocation, terminal, command, timeout)
+        if approval.pending:
+            return reply(invocation, "busy", terminal, "another agent command waiting for approval", "", 0)
+
+        def answered(run):
+            if not run or terminal.get_root() is None:  # Don't Run, or the tab was closed
+                return reply(invocation, "denied", terminal, command, "", 0)
+            # The user may have typed or started something while deciding
+            if not self._refuse(invocation, terminal):
+                self._type(invocation, terminal, command, timeout)
+
+        approval.ask(command, answered)
+
+    def _refuse(self, invocation, terminal):
+        """Replies busy or typing when the terminal is not free; True then."""
         program = terminal.running_program()
         if program:
-            return reply(invocation, "busy", terminal, program, "", 0)
+            reply(invocation, "busy", terminal, program, "", 0)
+            return True
         typed = terminal.command_log.typed_text()
         if typed:
-            return reply(invocation, "typing", terminal, typed, "", 0)
+            reply(invocation, "typing", terminal, typed, "", 0)
+            return True
+        return False
+
+    def _type(self, invocation, terminal, command, timeout):
         if SUDO.search(command):
             # Drop cached credentials: every sudo command from the agent needs
             # the password, typed by the user in their terminal

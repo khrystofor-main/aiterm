@@ -33,7 +33,8 @@ fi
 if [ -f "$AGY_SETTINGS" ] && command -v jq >/dev/null; then
   tmp=$(mktemp)
   jq 'if .permissions.allow then .permissions.allow -= ["command(aiterm-left)", "command(aiterm-run)",
-      "mcp(aiterm_terminal/read_terminal)", "mcp(aiterm_terminal/get_cwd)", "mcp(aiterm_terminal/wait_for_command)"]
+      "mcp(aiterm_terminal/*)", "mcp(aiterm_terminal/read_terminal)", "mcp(aiterm_terminal/get_cwd)",
+      "mcp(aiterm_terminal/wait_for_command)"]
     else . end' "$AGY_SETTINGS" > "$tmp" && cat "$tmp" > "$AGY_SETTINGS" && rm "$tmp"
 fi
 

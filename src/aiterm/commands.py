@@ -35,6 +35,8 @@ FINISHED = Vte.TERMPROP_SHELL_PRECMD
 EXIT_CODE = Vte.TERMPROP_SHELL_POSTEXEC
 
 MAX_COMMANDS = 500
+# How long an ended command waits for its prompt before it is logged without one
+PROMPT_WAIT_MS = 1000
 
 
 @dataclass
@@ -75,6 +77,7 @@ class CommandLog:
         self.prompt_rows = []
         self._prompt = None  # the prompt the running or next command was typed at
         self._running = None  # (start time, text) while a command runs
+        self._ending = None  # (text, seconds) of a command that ended before its prompt
         self._batch = _Batch()
         # The shell can send these a batch before the event they belong to
         self._text = None
@@ -136,13 +139,15 @@ class CommandLog:
     def _process(self):
         batch, self._batch = self._batch, _Batch()
         now = time.monotonic()
-        if self._running is not None and batch.finished:
+        if self._ending and batch.prompt:
+            self._finish(*self._ending, batch)
+        elif self._running is not None and batch.finished:
             # The running command ended (a new one starting in the same
             # batch means it was typed ahead; it goes unrecorded)
             started, text = self._running
-            self._finish(text, batch, now - started)
+            self._end(text, batch, now - started)
         elif batch.started and batch.finished:
-            self._finish(self._text, batch, 0.0)  # started and ended in one go
+            self._end(self._text, batch, 0.0)  # started and ended in one go
         elif batch.started:
             self._running = (now, self._text)
         if batch.prompt:
@@ -151,8 +156,23 @@ class CommandLog:
             del self.prompt_rows[:-MAX_COMMANDS]
         return GLib.SOURCE_REMOVE
 
-    def _finish(self, text, batch, seconds):
-        self._running = None
+    def _end(self, text, batch, seconds):
+        """The command ended. Its output runs up to the next prompt, which can
+        come a moment later, in the next batch: then it is finished there
+        (or after PROMPT_WAIT_MS without one). Until then it counts as
+        running, so nobody takes the old prompt line for typed text."""
+        if batch.prompt:
+            return self._finish(text, seconds, batch)
+        self._ending = (text, seconds)
+        GLib.timeout_add(PROMPT_WAIT_MS, self._end_without_prompt, self._ending)
+
+    def _end_without_prompt(self, ending):
+        if self._ending is ending:
+            self._finish(*ending, _Batch())
+        return GLib.SOURCE_REMOVE
+
+    def _finish(self, text, seconds, batch):
+        self._running = self._ending = None
         command = Command(text or "", "", self._exit_code, seconds)
         self._text, self._exit_code = None, 0
         start, end = self._prompt, batch.prompt

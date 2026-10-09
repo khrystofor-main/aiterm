@@ -3,6 +3,7 @@
 from gi.repository import Adw, Gio, GLib, Gtk
 
 from aiterm.agent_panel import AgentPanel
+from aiterm.approval import ApprovalBar
 from aiterm.search import SearchBar
 from aiterm.settings import Settings
 from aiterm.shortcuts import add_capture_shortcuts
@@ -113,8 +114,14 @@ class Window(Adw.ApplicationWindow):
         # to resize. The panel keeps its width when the window is resized
         self.agent_panel = AgentPanel(self)
         self.agent_panel.set_visible(settings.agent_panel_visible)
+        # The agent's commands wait for the user's Run here, above the terminal
+        self.approval = ApprovalBar()
+        terminal_side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        terminal_side.append(self.approval)
+        terminal_side.append(self.tabs)
+        self.tabs.set_vexpand(True)
         self.paned = Gtk.Paned(
-            start_child=self.tabs, end_child=self.agent_panel,
+            start_child=terminal_side, end_child=self.agent_panel,
             resize_end_child=False, shrink_start_child=False, shrink_end_child=False,
         )
         self.paned.connect("notify::max-position", lambda *_: self._place_panel_border())

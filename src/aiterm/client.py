@@ -15,7 +15,8 @@ from gi.repository import Gio, GLib  # noqa: E402
 from aiterm import APP_ID, OBJECT_PATH, TERMINAL_INTERFACE  # noqa: E402
 
 # status: done, busy (a program is running), typing (the user has text on the
-# prompt line) or timeout (still running; output so far)
+# prompt line), denied (the user clicked Don't Run) or timeout (still running;
+# output so far)
 Result = namedtuple("Result", "status folder command output exit_code")
 Command = namedtuple("Command", "command output exit_code seconds")
 
