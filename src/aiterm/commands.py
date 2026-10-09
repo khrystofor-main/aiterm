@@ -60,6 +60,7 @@ class _Prompt:
     row: int  # first row of the prompt
     input_row: int  # where the command starts
     input_col: int
+    text: str = ""  # the prompt's last line, up to the command
 
 
 @dataclass
@@ -93,6 +94,22 @@ class CommandLog:
     def running(self):
         """True between a command's start and its end."""
         return self._running is not None
+
+    @property
+    def running_since(self):
+        """When the running command started (time.monotonic()), or None."""
+        return self._running[0] if self._running else None
+
+    @property
+    def running_text(self):
+        """The running command as the shell reported it, or None."""
+        return self._running[1] if self._running else None
+
+    @property
+    def prompt_text(self):
+        """The current prompt's last line up to where the command starts
+        (e.g. "user@host:~$ "), or None."""
+        return self._prompt.text if self._prompt else None
 
     @property
     def input_row(self):
@@ -147,7 +164,8 @@ class CommandLog:
         elif name == PROMPT_MARK:
             valid, lines = terminal.get_termprop_int(name)
             col, row = terminal.get_cursor_position()
-            batch.prompt = _Prompt(row - (lines if valid else 0), row, col)
+            text, _ = terminal.get_text_range_format(Vte.Format.TEXT, row, 0, row, col - 1) if col else ("", 0)
+            batch.prompt = _Prompt(row - (lines if valid else 0), row, col, text or "")
 
     def _process(self):
         batch, self._batch = self._batch, _Batch()

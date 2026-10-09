@@ -30,6 +30,10 @@ def play(terminal, effect):
         terminal.effects.shake(top, force=True)  # the failed `ls`
     elif effect == "stripe":
         terminal.effects.light(top + 3, top + 5, force=True)  # make's output
+    elif effect == "fail_mark":
+        terminal.effects.mark(top, 2, force=True)
+    elif effect == "theme":
+        terminal.show_color_change()
 
 
 class AnimationsPage(Adw.PreferencesPage):

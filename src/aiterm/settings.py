@@ -36,6 +36,8 @@ class Settings(GObject.Object):
     # "off"; the preset is a key of animations.Animations.presets
     animations = GObject.Property(type=str, default="auto")
     animation_preset = GObject.Property(type=str, default="subtle")
+    # The "animations can be set up" toast was shown, at the first failed command
+    animations_hint_shown = GObject.Property(type=bool, default=False)
     # The agent's commands wait for Run in the approval bar (approval.py)
     approve_agent_commands = GObject.Property(type=bool, default=True)
     # agy's own interface in a terminal, or the app's chat (agent_panel.py)

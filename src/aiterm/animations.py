@@ -82,8 +82,8 @@ class Param:
                 return None
             if self.choices is not None and value not in self.choices:
                 return None
-            if self.choices is None and not re.fullmatch(r"accent|#[0-9a-fA-F]{6}", value):
-                return None  # a color
+            if self.choices is None and not re.fullmatch(r"accent|success|error|#[0-9a-fA-F]{6}", value):
+                return None  # a color: the theme's accent, the palette's green or red, or #rrggbb
             return value
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             return None
@@ -115,7 +115,16 @@ EFFECTS = {
         "New Output Stripe", "A stripe on the left of new output, fading away",
         width=Param(int, 1, 8),  # px
         alpha=Param(float, 0.05, 1.0),  # at intensity 1
-        color=Param(str),  # "accent" or "#rrggbb"
+        color=Param(str),  # while the command runs; then green or red by its exit code
+        flood=Param(int, 100, 100_000),  # lines/s above which output gets no stripe
+    ),
+    "fail_mark": Effect(
+        "Failure Mark", "✗ and the exit code slide in at the end of a failed command's line",
+        distance=Param(float, 0, 200),  # px it slides in from, at intensity 1
+        color=Param(str),
+    ),
+    "theme": Effect(
+        "Color Changes", "Terminal colors blend into a new palette or light/dark style",
     ),
 }
 
@@ -126,7 +135,10 @@ BUILTIN = {
             "shake": {"enabled": True, "duration": 250, "curve": "ease-out", "intensity": 1.0,
                       "amplitude": 5, "cycles": 2},
             "stripe": {"enabled": True, "duration": 900, "curve": "ease-out", "intensity": 1.0,
-                       "width": 3, "alpha": 0.8, "color": "accent"},
+                       "width": 3, "alpha": 0.8, "color": "accent", "flood": 1000},
+            "fail_mark": {"enabled": True, "duration": 200, "curve": "ease-out", "intensity": 1.0,
+                          "distance": 16, "color": "error"},
+            "theme": {"enabled": True, "duration": 300, "curve": "ease-in-out", "intensity": 1.0},
         },
         "code_1_answers": ["grep", "diff", "test", "["],
     },
@@ -136,7 +148,10 @@ BUILTIN = {
             "shake": {"enabled": True, "duration": 450, "curve": "spring", "intensity": 1.0,
                       "amplitude": 9, "cycles": 3},
             "stripe": {"enabled": True, "duration": 1500, "curve": "ease-in-out", "intensity": 1.0,
-                       "width": 4, "alpha": 1.0, "color": "accent"},
+                       "width": 4, "alpha": 1.0, "color": "accent", "flood": 1000},
+            "fail_mark": {"enabled": True, "duration": 400, "curve": "spring", "intensity": 1.0,
+                          "distance": 36, "color": "error"},
+            "theme": {"enabled": True, "duration": 500, "curve": "ease-in-out", "intensity": 1.0},
         },
         "code_1_answers": ["grep", "diff", "test", "["],
     },

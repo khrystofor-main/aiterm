@@ -74,6 +74,7 @@ class Application(Adw.Application):
         for name, callback in {
             "new-window": self.new_window,
             "preferences": self.show_preferences,
+            "animation-preferences": lambda: self.show_preferences("animations"),
             "shortcuts": self.show_shortcuts,
             "about": self.show_about,
         }.items():
@@ -110,8 +111,11 @@ class Application(Adw.Application):
         if window:
             window.show_terminal(serial)
 
-    def show_preferences(self):
-        PreferencesDialog().present(self.get_active_window())
+    def show_preferences(self, page=None):
+        dialog = PreferencesDialog()
+        if page == "animations":
+            dialog.set_visible_page(dialog.animations_page)
+        dialog.present(self.get_active_window())
 
     def show_shortcuts(self):
         dialog = Adw.ShortcutsDialog()

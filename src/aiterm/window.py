@@ -3,7 +3,9 @@
 from gi.repository import Adw, Gio, GLib, Gtk
 
 from aiterm.agent_panel import AgentPanel
+from aiterm.animations import Animations
 from aiterm.approval import ApprovalBar
+from aiterm.effects import is_failure
 from aiterm.search import SearchBar
 from aiterm.settings import Settings
 from aiterm.shortcuts import add_capture_shortcuts
@@ -129,7 +131,9 @@ class Window(Adw.ApplicationWindow):
         self.paned.connect("notify::max-position", lambda *_: self._place_panel_border())
         self.paned.connect("notify::position", lambda *_: self._save_panel_width())
 
-        toolbar = Adw.ToolbarView(content=self.paned)
+        # Toasts float over the terminals
+        self.toasts = Adw.ToastOverlay(child=self.paned)
+        toolbar = Adw.ToolbarView(content=self.toasts)
         toolbar.add_top_bar(header)
         toolbar.add_top_bar(tab_bar)
         self.search = SearchBar(self.current_terminal)
@@ -256,6 +260,7 @@ class Window(Adw.ApplicationWindow):
         self.present()
 
     def _on_command_finished(self, terminal, code, seconds, page):
+        self._hint_animations(terminal, code)
         out_of_sight = not self.is_active() or self.tabs.get_selected_page() is not page
         if seconds < LONG_COMMAND_SECONDS or not out_of_sight or not Settings.get().notify_long_commands:
             return
@@ -268,6 +273,19 @@ class Window(Adw.ApplicationWindow):
             "app.show-terminal", GLib.Variant("(uu)", (self.get_id(), terminal.serial)),
         )
         self.get_application().send_notification(f"command-{terminal.serial}", notification)
+
+    def _hint_animations(self, terminal, code):
+        """At the first failed command ever, once: where the shake and the ✗
+        are set up."""
+        settings = Settings.get()
+        command = terminal.command_log.commands[-1] if terminal.command_log.commands else None
+        if settings.animations_hint_shown or not command \
+                or not is_failure(command.text, code, Animations.get().code_1_answers()):
+            return
+        settings.animations_hint_shown = True
+        toast = Adw.Toast(title="Animations can be set up in Preferences → Animations",
+                          button_label="Open", action_name="app.animation-preferences", timeout=8)
+        self.toasts.add_toast(toast)
 
     def _on_tab_selected(self):
         page = self.tabs.get_selected_page()
