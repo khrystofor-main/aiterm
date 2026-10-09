@@ -13,7 +13,14 @@ SHORTCUTS = {
     "win.new-tab": "<Control><Shift>t",
     "win.close-tab": "<Control><Shift>w",
     "app.new-window": "<Control><Shift>n",
+    "win.zoom-in": "<Control>plus|<Control>equal|<Control>KP_Add",
+    "win.zoom-out": "<Control>minus|<Control>KP_Subtract",
+    "win.zoom-reset": "<Control>0|<Control>KP_0",
 }
+
+# Font zoom, for every tab of a window; new tabs get the window's zoom
+ZOOM_STEP = 1.1
+ZOOM_MIN, ZOOM_MAX = 0.5, 3.0
 
 # Ctrl+Home/End belong to programs running in the terminal (editors, less)
 TAB_VIEW_SHORTCUTS = Adw.TabViewShortcuts.ALL_SHORTCUTS & ~(
@@ -74,6 +81,9 @@ class Window(Adw.ApplicationWindow):
         actions = {
             "new-tab": self.new_tab,
             "close-tab": self.close_tab,
+            "zoom-in": lambda: self.set_zoom(self.zoom * ZOOM_STEP),
+            "zoom-out": lambda: self.set_zoom(self.zoom / ZOOM_STEP),
+            "zoom-reset": lambda: self.set_zoom(1.0),
         }
         for name, callback in actions.items():
             action = Gio.SimpleAction.new(name, None)
@@ -84,6 +94,7 @@ class Window(Adw.ApplicationWindow):
             for name, trigger in SHORTCUTS.items()
         })
 
+        self.zoom = 1.0
         self._closing_confirmed = False
         self.connect("close-request", lambda *_: self._on_close_request())
 
@@ -99,8 +110,14 @@ class Window(Adw.ApplicationWindow):
         if page:
             self.tabs.close_page(page)
 
+    def set_zoom(self, zoom):
+        self.zoom = round(min(max(zoom, ZOOM_MIN), ZOOM_MAX), 2)
+        for terminal in self.terminals():
+            terminal.set_font_scale(self.zoom)
+
     def add_tab(self, cwd=None):
         terminal = Terminal(cwd)
+        terminal.set_font_scale(self.zoom)
         scroller = Gtk.ScrolledWindow(child=terminal, hscrollbar_policy=Gtk.PolicyType.NEVER)
         page = self.tabs.append(scroller)
         page.set_title("Terminal")
