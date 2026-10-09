@@ -4,11 +4,12 @@ changes apply to open terminals at once and are saved right away."""
 from gi.repository import Adw, GObject, Gtk, Pango
 
 from aiterm.palettes import PALETTES
-from aiterm.settings import CURSOR_SHAPES, Settings
+from aiterm.settings import AGENT_VIEWS, CURSOR_SHAPES, Settings
 from aiterm.terminal import Terminal
 
 BOTH_WAYS = GObject.BindingFlags.BIDIRECTIONAL | GObject.BindingFlags.SYNC_CREATE
 CURSOR_LABELS = {"block": "Block", "ibeam": "I-Beam", "underline": "Underline"}
+VIEW_LABELS = {"terminal": "Terminal", "chat": "Chat"}
 
 
 class PreferencesDialog(Adw.PreferencesDialog):
@@ -96,7 +97,13 @@ class PreferencesDialog(Adw.PreferencesDialog):
         )
         settings.bind_property("approve-agent-commands", self.approve_row, "active", BOTH_WAYS)
         commands.add(self.approve_row)
+        panel = Adw.PreferencesGroup(title="Panel")
+        self.view_row = combo_row("View", list(AGENT_VIEWS), settings, "agent_view", VIEW_LABELS)
+        self.view_row.set_subtitle("Terminal: agy's own interface, with its commands and settings. "
+                                   "Chat: messages and command blocks drawn by Aiterm")
+        panel.add(self.view_row)
         agent = Adw.PreferencesPage(title="Agent", icon_name="chat-message-new-symbolic")
+        agent.add(panel)
         agent.add(commands)
         self.add(agent)
 

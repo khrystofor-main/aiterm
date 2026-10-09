@@ -13,6 +13,7 @@ from gi.repository import GLib, GObject
 from aiterm.palettes import DEFAULT_PALETTE, PALETTES
 
 CURSOR_SHAPES = ("block", "ibeam", "underline")
+AGENT_VIEWS = ("terminal", "chat")
 
 
 def config_dir():
@@ -32,6 +33,8 @@ class Settings(GObject.Object):
     notify_long_commands = GObject.Property(type=bool, default=True)
     # The agent's commands wait for Run in the approval bar (approval.py)
     approve_agent_commands = GObject.Property(type=bool, default=True)
+    # agy's own interface in a terminal, or the app's chat (agent_panel.py)
+    agent_view = GObject.Property(type=str, default="terminal")
     # Not in the dialog: the size of the last window closed, for the next one
     window_width = GObject.Property(type=int, default=960, minimum=200, maximum=20_000)
     window_height = GObject.Property(type=int, default=600, minimum=150, maximum=20_000)
@@ -72,6 +75,8 @@ class Settings(GObject.Object):
             self.palette = DEFAULT_PALETTE
         if self.cursor_shape not in CURSOR_SHAPES:
             self.cursor_shape = "block"
+        if self.agent_view not in AGENT_VIEWS:
+            self.agent_view = "terminal"
 
     def save(self):
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
