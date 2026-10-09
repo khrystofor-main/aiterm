@@ -27,3 +27,19 @@ jobs:
           useradd -m tester
           chown -R tester .
           su tester -c 'dbus-run-session -- xvfb-run -a -s "-screen 0 1600x1000x24" tests/run.sh'
+
+  package:
+    runs-on: ubuntu-latest
+    container: ubuntu:26.04
+    steps:
+      - name: Install dependencies
+        run: apt-get update && apt-get install -y --no-install-recommends git python3 dpkg-dev ca-certificates
+      - uses: actions/checkout@v4
+      - name: Build the .deb
+        run: |
+          git config --global --add safe.directory "$PWD"
+          packaging/build-deb.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aiterm-deb
+          path: dist/*.deb

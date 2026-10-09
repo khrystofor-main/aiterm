@@ -664,6 +664,24 @@ def steps(app):
     settings.agent_view = "terminal"
     check("switching back to Terminal starts agy's terminal again", win.agent_panel.terminal is not None)
 
+    # Without the agy plugin (as after installing the .deb), the panel asks first
+    import aiterm.agent_panel as agent_panel
+    real = agent_panel.needs_setup, agent_panel.SETUP
+    connected = []
+    agent_panel.needs_setup = lambda: not connected
+    agent_panel.SETUP = "/bin/true"
+    win.agent_panel.restart()
+    check("without the agy plugin the panel offers to connect it",
+          win.agent_panel.terminal is None and isinstance(win.agent_panel.get_child(), Adw.StatusPage))
+    win.agent_panel.skip_button.emit("clicked")
+    check("Not Now starts the agent anyway", win.agent_panel.terminal is not None)
+    win.agent_panel.setup_declined = False
+    win.agent_panel.restart()
+    connected.append(True)
+    win.agent_panel.connect_button.emit("clicked")
+    check("Connect runs the setup and starts the agent", win.agent_panel.terminal is not None)
+    agent_panel.needs_setup, agent_panel.SETUP = real
+
     app.activate_action("new-window", None)
     other = app.get_active_window()
     check("a new window opens with the panel too", other.agent_panel.get_visible())
