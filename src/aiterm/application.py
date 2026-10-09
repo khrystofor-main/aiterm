@@ -9,7 +9,7 @@ gi.require_version("Vte", "3.91")
 from gi.repository import Adw, Gdk, Gtk  # noqa: E402
 
 from aiterm import APP_ID  # noqa: E402
-from aiterm.terminal import SHORTCUTS  # noqa: E402
+from aiterm import terminal, window  # noqa: E402
 from aiterm.window import Window  # noqa: E402
 
 # Keeps text off the window edges
@@ -29,10 +29,11 @@ class Application(Adw.Application):
         Gtk.StyleContext.add_provider_for_display(
             Gdk.Display.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
-        # The terminal handles these keys itself; registering them here only
-        # shows them next to the items in menus
-        for name, accel in SHORTCUTS.items():
-            self.set_accels_for_action(f"term.{name}", [accel])
+        # Terminals and windows catch these keys themselves (see shortcuts.py);
+        # registering them here only shows them next to the items in menus
+        for prefix, shortcuts in (("term", terminal.SHORTCUTS), ("win", window.SHORTCUTS)):
+            for name, accel in shortcuts.items():
+                self.set_accels_for_action(f"{prefix}.{name}", [accel])
 
     def do_activate(self):
         # Launching the app again (menu, dock) opens another window in the same
