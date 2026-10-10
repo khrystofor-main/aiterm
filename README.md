@@ -101,6 +101,8 @@ Open **Aiterm** from the menu (or run `aiterm`). Run from a terminal, it opens i
 | `Ctrl+plus` / `Ctrl+minus` / `Ctrl+0` | Zoom |
 | `Ctrl+,` | Preferences: palette, font, prompt, scrollback, cursor, notifications |
 
+Every line where you typed a command gets a small dot at its right end (left of it, a failed command's `✗`), so your commands are easy to find among long output; Preferences → Appearance → **Mark Command Lines** turns it off.
+
 Also: Ctrl+click opens links, right-click on a command's output → **Copy Output**, dropped files are typed as quoted paths, and a desktop notification tells you when a long command finishes in a background tab. Preferences are saved in `~/.config/aiterm/settings.json`.
 
 Preferences → Prompt gives bash Aiterm's own prompt: turn segments on or off (user and host, folder, git branch, Python environment, time, the exit code of a failed command), give each one of the palette's colors, show your own text (emoji too) instead of user@host, reorder them, pick the symbol (`$`, `❯`, `›`, `λ`, `%`) and put it on its own line. A preview shows the result, and every open tab takes it at its next prompt. Your `~/.bashrc` is never touched: the app keeps the prompt in `~/.config/aiterm/prompt`, its shell integration reads it at each prompt (with builtins only; the branch comes from `.git/HEAD`, without starting git), and turning it off brings back your own prompt.

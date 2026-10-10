@@ -53,6 +53,10 @@ class PreferencesDialog(Adw.PreferencesDialog):
         settings.bind_property("use-system-font", font_row, "sensitive",
                                GObject.BindingFlags.SYNC_CREATE | GObject.BindingFlags.INVERT_BOOLEAN)
         text.add(font_row)
+        self.dots_row = Adw.SwitchRow(title="Mark Command Lines",
+                                      subtitle="A dot at the end of each line where you typed a command")
+        settings.bind_property("mark-command-lines", self.dots_row, "active", BOTH_WAYS)
+        text.add(self.dots_row)
 
         appearance = Adw.PreferencesPage(title="Appearance", icon_name="applications-graphics-symbolic")
         appearance.add(colors)
