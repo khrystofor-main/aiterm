@@ -36,7 +36,9 @@ ENV = dict(
     SHELL="/bin/bash",
 )
 # Plenty of output from the app: for the log, or the terminal if it leaked there
-DEBUG = {"G_MESSAGES_DEBUG": "all"}
+# GTK's and the graphics stack's debug output: any of it reaching the caller's
+# terminal means the launcher opened the display
+DEBUG = {"G_MESSAGES_DEBUG": "Gdk Gtk Gsk Adw Vte", "LIBGL_DEBUG": "verbose"}
 ENV.pop("XDG_STATE_HOME", None)
 ENV.pop("AITERM_DETACHED", None)
 
@@ -127,6 +129,12 @@ def stop(pid):
 
 
 print("errors and help (no window)")
+probe = subprocess.run(
+    [sys.executable, "-c", "import sys; from aiterm import launch; code = launch.main(sys.argv);"
+     " print(code, sorted(m for m in sys.modules if m.split('.')[-1] in ('Gtk', 'Gdk', 'Adw', 'Vte')))",
+     "/no/such/dir"],
+    env=dict(ENV, PYTHONPATH=os.path.join(ROOT, "src")), capture_output=True, text=True)
+check("the launcher never loads GTK", probe.stdout.strip() == "1 []", probe.stdout + probe.stderr)
 code, took, out, _ = run_in_pty(["/no/such/dir"])
 check("`aiterm /no/such/dir` exits with code 1", code == 1, f"code {code}")
 check("…and says why in the calling terminal", "/no/such/dir: no such folder" in out, out)
@@ -160,7 +168,7 @@ else:
 
         sub = os.path.join(HOME, "sub")
         os.mkdir(sub)
-        code, took, out, _ = run_in_pty(["sub"])
+        code, took, out, _ = run_in_pty(["sub"], env=DEBUG)
         check("a second `aiterm DIR` goes to the running app: code 0", code == 0, f"code {code}")
         check("…quietly", out == "", repr(out[:300]))
         check("…and no second app", app_pid() == pid)

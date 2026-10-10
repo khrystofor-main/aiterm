@@ -1,7 +1,6 @@
 """The application object: one process, any number of windows."""
 
 import os
-import sys
 
 import gi
 
@@ -12,6 +11,7 @@ gi.require_version("Vte", "3.91")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
 from aiterm import APP_ID, VERSION, launch  # noqa: E402
+from aiterm.launch import start_directory  # noqa: E402
 from aiterm import (  # noqa: E402
     agent_panel, approval, chat_view, diff_view, feedback_page, prompt, prompt_page, terminal, window,
 )
@@ -71,15 +71,9 @@ class Application(Adw.Application):
         flags = kwargs.pop("flags", Gio.ApplicationFlags.DEFAULT_FLAGS)
         super().__init__(application_id=application_id,
                          flags=flags | Gio.ApplicationFlags.HANDLES_COMMAND_LINE, **kwargs)
-        # `aiterm DIR`, `aiterm -w DIR`: the folder of the new window's first tab
-        self.add_main_option("working-directory", ord("w"), GLib.OptionFlags.NONE, GLib.OptionArg.FILENAME,
-                             "Open the first tab in DIR instead of the current folder", "DIR")
-        self.add_main_option(GLib.OPTION_REMAINING, 0, GLib.OptionFlags.NONE, GLib.OptionArg.FILENAME_ARRAY,
-                             "", "[DIR]")
-        # Keeps the app in the calling terminal, its output there (see do_handle_local_options)
-        self.add_main_option("foreground", 0, GLib.OptionFlags.NONE, GLib.OptionArg.NONE,
-                             "Stay in this terminal and print warnings here instead of the log", None)
-        self.argv = None  # the command line main() was given, to start it again detached
+        # `aiterm DIR`, `aiterm -w DIR`, `--foreground`: the same options the
+        # launcher (launch.py) checks before this process starts
+        launch.add_options(self)
         self._next_window_cwd = None  # set by do_command_line for do_activate
 
     def do_startup(self):
@@ -140,45 +134,6 @@ class Application(Adw.Application):
     def do_dbus_unregister(self, connection, object_path):
         self.terminal_api.unregister()
         Adw.Application.do_dbus_unregister(self, connection, object_path)
-
-    def do_handle_local_options(self, options):
-        """Runs in the process the user started, after GApplication has dealt
-        with --help and bad options. `aiterm` typed in a terminal must leave it
-        at once and print nothing there later, so the first run checks its
-        folder here, then starts the app again in a detached process (output
-        to the log, see launch.py) and exits 0. When Aiterm is already
-        running, this process stays: GApplication forwards the command line
-        to it and exits, with the running app's errors printed here."""
-        if os.environ.pop(launch.DETACHED_ENV, None) or self.argv is None:
-            return -1  # the detached process, or a test: run the app here
-        if options.contains("foreground"):
-            return -1
-        try:
-            cwd = os.getcwd()
-        except FileNotFoundError:
-            cwd = None  # the caller's folder is gone: the app opens in ~
-        try:
-            start_directory(options, cwd)
-        except ValueError as error:
-            print(f"aiterm: {error}", file=sys.stderr)
-            return 1
-        if self._primary_running():
-            return -1
-        launch.spawn_detached(self.argv[1:], cwd)
-        return 0
-
-    def _primary_running(self):
-        """Whether an Aiterm already owns the application ID on the session bus."""
-        if self.get_flags() & Gio.ApplicationFlags.NON_UNIQUE:
-            return False
-        try:
-            bus = Gio.bus_get_sync(Gio.BusType.SESSION)
-            reply = bus.call_sync("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
-                                  "NameHasOwner", GLib.Variant("(s)", (self.get_application_id(),)),
-                                  GLib.VariantType("(b)"), Gio.DBusCallFlags.NONE, -1)
-        except GLib.Error:
-            return False  # no session bus: GApplication will run on its own
-        return reply.unpack()[0]
 
     def do_command_line(self, command_line):
         """Every `aiterm` run lands here, in the first process: the first run's
@@ -254,30 +209,8 @@ class Application(Adw.Application):
         ).present(self.get_active_window())
 
 
-def start_directory(options, cwd):
-    """The folder for the window a command line opens: `-w DIR` or `DIR`,
-    relative to the caller's folder `cwd`, else that folder itself. Raises
-    ValueError for a folder that does not exist."""
-    named = options.lookup_value("working-directory", GLib.VariantType("ay"))
-    rest = options.lookup_value(GLib.OPTION_REMAINING, GLib.VariantType("aay"))
-    rest = [os.fsdecode(path) for path in rest.get_bytestring_array()] if rest else []
-    if named and rest or len(rest) > 1:
-        raise ValueError("give one folder to open in")
-    arg = os.fsdecode(named.get_bytestring()) if named else rest[0] if rest else None
-    if arg is None:
-        # The caller's folder may be gone (deleted while its shell sat there):
-        # then the home folder, as before
-        return cwd if cwd and os.path.isdir(cwd) else None
-    path = Gio.File.new_for_commandline_arg_and_cwd(arg, cwd or os.path.expanduser("~")).get_path()
-    if not path or not os.path.isdir(path):
-        raise ValueError(f"{arg}: no such folder")
-    return path
-
-
 def main(argv):
+    """Runs the app in this process: started by launch.main, detached or
+    with --foreground."""
     GLib.set_prgname("aiterm")  # for --help, as argv[0] is __main__.py
-    # AITERM_APP_ID: tests run the whole command under their own ID, never
-    # reaching the user's running Aiterm
-    app = Application(application_id=os.environ.get("AITERM_APP_ID", APP_ID))
-    app.argv = argv
-    return app.run(argv)
+    return Application(application_id=launch.app_id()).run(argv)
