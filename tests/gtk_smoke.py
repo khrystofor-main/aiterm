@@ -394,8 +394,11 @@ def steps(app):
     panel_action.change_state(GLib.Variant.new_boolean(True))
     check("the agent panel slides in from the right", panel.get_visible() and panel._offset == 1,
           f"{panel.get_visible()} {panel._offset}")
+    check("…its separator moving with it (the paned's own one is hidden meanwhile)",
+          win.paned.has_css_class("agent-panel-sliding") and panel._separator() is not None)
     animations.finish_all()
-    check("…and settles in place", panel._offset == 0)
+    check("…and settles in place, the paned's separator back", panel._offset == 0
+          and not win.paned.has_css_class("agent-panel-sliding"))
     panel_action.change_state(GLib.Variant.new_boolean(False))
     check("closing, it slides out before it hides (the terminal resizes once)", panel.get_visible())
     animations.finish_all()

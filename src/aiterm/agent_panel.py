@@ -29,6 +29,9 @@ from aiterm.terminal import Terminal
 MIN_WIDTH = 240
 BIN = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", "bin"))
 INSTALL_URL = "https://antigravity.google/docs/cli/install"
+# The paned's own separator stays put while the panel slides, so it is hidden
+# meanwhile and the panel draws one at its moving edge (do_snapshot)
+CSS = "paned.agent-panel-sliding > separator { box-shadow: none; }"
 
 
 def agent_command():
@@ -41,6 +44,14 @@ def agent_command():
 
 
 SETUP = os.path.join(BIN, "aiterm-agent-setup")
+
+
+def separator_color(separator):
+    """The line libadwaita draws for a paned's separator: its text color at
+    the border opacity (a box-shadow, which a snapshot cannot ask for)."""
+    color = separator.get_color()
+    color.alpha *= 0.5 if Adw.StyleManager.get_default().get_high_contrast() else 0.15
+    return color
 
 
 def needs_setup():
@@ -67,6 +78,7 @@ class AgentPanel(Adw.Bin):
         self.last_chat = None  # the chat view to show again, with its messages
         self._offset = 0.0  # how far it is pushed off to the right, 0..1 of its width
         self._slides = 0  # counts slides, so an interrupted one does not finish
+        self._sliding = False
         handler = Settings.get().connect("notify::agent-view", lambda *_: self.restart())
         window.connect("destroy", lambda *_: self._on_window_destroyed(handler))
 
@@ -74,9 +86,13 @@ class AgentPanel(Adw.Bin):
         """Slides the panel in from the right or out to it, then calls done().
         It keeps its width meanwhile, and the place it leaves shows the
         terminal's background: the terminal resizes once, not on every frame
-        (each resize makes the shell redraw its prompt)."""
+        (each resize makes the shell redraw its prompt). The separator moves
+        with it."""
         self._slides += 1
         slide = self._slides
+        self._sliding = True
+        paned = self.get_parent()
+        paned.add_css_class("agent-panel-sliding")
 
         def frame(p):
             self._offset = 1 - p if showing else p
@@ -84,6 +100,8 @@ class AgentPanel(Adw.Bin):
 
         def finished():
             if slide == self._slides:
+                self._sliding = False
+                paned.remove_css_class("agent-panel-sliding")
                 self._offset = 0.0
                 self.queue_draw()
                 if done:
@@ -92,17 +110,31 @@ class AgentPanel(Adw.Bin):
         animations.play(self.window, "panel", frame, finished)
 
     def do_snapshot(self, snapshot):
-        if self._offset <= 0:
+        if not self._sliding:
             Adw.Bin.do_snapshot(self, snapshot)
             return
+        # The paned clips its children to itself only, so the background
+        # also covers the hidden separator left of the panel
+        edge = self._separator()
+        edge_width = edge.get_width() if edge else 0
+        height = self.get_height()
         terminal = self.window.current_terminal()
         if terminal:
             snapshot.append_color(terminal.get_color_background_for_draw(),
-                                  Graphene.Rect().init(0, 0, self.get_width(), self.get_height()))
+                                  Graphene.Rect().init(-edge_width, 0, self.get_width() + edge_width, height))
         snapshot.save()
-        snapshot.translate(Graphene.Point().init(self.get_width() * self._offset, 0))
+        snapshot.translate(Graphene.Point().init(self.get_width() * max(self._offset, 0), 0))
+        if edge:
+            snapshot.append_color(separator_color(edge), Graphene.Rect().init(-1, 0, 1, height))
         Adw.Bin.do_snapshot(self, snapshot)
         snapshot.restore()
+
+    def _separator(self):
+        """The paned's handle, the widget between the terminal and the panel."""
+        child = self.get_parent().get_first_child()
+        while child and child.get_css_name() != "separator":
+            child = child.get_next_sibling()
+        return child
 
     def start(self):
         """Starts the agent unless it is running."""
