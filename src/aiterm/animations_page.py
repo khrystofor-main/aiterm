@@ -61,7 +61,6 @@ def play_chat(chat):
         chat.messages.remove(child)
         child = chat.messages.get_first_child()
     chat.steps.clear()
-    chat.fades.clear()
     chat.process.busy = False
     chat.send("Why did the build fail?")
     tool = {"ServerName": "aiterm_terminal", "ToolName": "run_command", "Arguments": {"command": "make test"}}

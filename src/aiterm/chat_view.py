@@ -22,10 +22,12 @@ import html
 import os
 import re
 
-from gi.repository import Gdk, GLib, Gtk, Pango
+from gi.repository import Adw, Gdk, GLib, Gtk, Pango
 
-from aiterm import animations, edits
+from aiterm import animations, edits, markdown
 from aiterm.diff_view import DiffView, summary
+from aiterm.palettes import DEFAULT_PALETTE, PALETTES
+from aiterm.settings import Settings
 
 # Tools of agy's own, shown as one quiet line: name -> (verb, parameter to show)
 TOOL_LABELS = {
@@ -47,24 +49,28 @@ OUTPUT_LINES = 400  # the rest is in the user's terminal
 HIDDEN = object()  # a step not shown (see is_internal)
 
 
-def markdown_to_pango(text):
-    """The Markdown models write most (code blocks, `code`, **bold**,
-    headings, links) as Pango markup for a Gtk.Label."""
-    parts = re.split(r"^```[^\n]*\n(.*?)^```[ \t]*$", text, flags=re.S | re.M)
-    out = []
-    for i, part in enumerate(parts):
-        if i % 2:  # inside a fence
-            out.append(f"<tt>{html.escape(part.rstrip(chr(10)), quote=False)}</tt>")
-            continue
-        part = html.escape(part, quote=False)
-        part = re.sub(r"`([^`\n]+)`", r"<tt>\1</tt>", part)
-        part = re.sub(r"\*\*([^*\n]+)\*\*", r"<b>\1</b>", part)
-        part = re.sub(r"^#{1,6} +(.+)$", r"<b>\1</b>", part, flags=re.M)
-        part = re.sub(r"\[([^\]\n]+)\]\(((?:https?|file)://[^)\s]+)\)",
-                      lambda m: f'<a href="{html.escape(html.unescape(m[2]))}">{m[1]}</a>', part)
-        part = re.sub(r"^([ \t]*)[*-] ", "\\1• ", part, flags=re.M)
-        out.append(part)
-    return "".join(out).strip("\n")
+def markdown_to_pango(text, colors=None):
+    """The Markdown models write as Pango markup for one Gtk.Label
+    (markdown.py); the chat draws its blocks apart (AgentMessage)."""
+    return markdown.to_pango(text, colors).strip("\n")
+
+
+def theme_colors():
+    """The chat's colors from the terminal's palette, for the current
+    light/dark style."""
+    palette = PALETTES.get(Settings.get().palette, PALETTES[DEFAULT_PALETTE])
+    return markdown.colors_for(palette, Adw.StyleManager.get_default().get_dark())
+
+
+def _set_markup(label, markup):
+    """Markup the model's Markdown could make wrong (crossed ** and *):
+    shown as plain text rather than not at all."""
+    try:
+        Pango.parse_markup(re.sub(r'<a href="[^"]*">|</a>', "", markup), -1, "\0")  # <a> is the label's own
+    except GLib.Error:
+        markup = html.escape(html.unescape(re.sub(r"<[^>]*>", "", markup)), quote=False)
+    if label.get_label() != markup:
+        label.set_markup(markup)
 
 
 def _label(text="", css=(), markup=False, mono=False, **kwargs):
@@ -77,6 +83,28 @@ def _label(text="", css=(), markup=False, mono=False, **kwargs):
     for name in (*css, *(["monospace"] if mono else [])):
         label.add_css_class(name)
     return label
+
+
+def unbreakable_words(text):
+    """The text with a word joiner (U+2060, invisible) between the
+    characters of each word: a label wraps it only at spaces, unless a
+    word is longer than the line."""
+    return re.sub(r"(?<=\S)(?=\S)", "\u2060", text)
+
+
+def _icons_on_first_line(expander, header, icons):
+    """A header whose title wraps: the expander's arrow and the status icons
+    sit on the title's first line, not in the middle of its lines. The
+    expander's own arrow is centered on the whole header, so it gives way
+    to an arrow in the header, which aligns on the first baseline."""
+    expander.get_first_child().get_first_child().get_first_child().set_visible(False)  # box > title > arrow
+    arrow = Gtk.Image(icon_name="pan-end-symbolic")
+    header.prepend(arrow)
+    header.set_spacing(6)
+    expander.connect("notify::expanded", lambda *_: arrow.set_from_icon_name(
+        "pan-down-symbolic" if expander.get_expanded() else "pan-end-symbolic"))
+    for widget in (arrow, *icons, header.get_last_child()):  # the last: the title
+        widget.set_valign(Gtk.Align.BASELINE_CENTER)
 
 
 # The keys that answer the request on a chat card (ChatView), shown on its buttons
@@ -113,13 +141,16 @@ class CommandRow(Gtk.Box):
         bar = animations.Animations.get().effect("tool_card", force_animations) is not None
         self.spinner = Gtk.Spinner(spinning=True, visible=not bar)
         self.icon = Gtk.Image(visible=False)
-        title = _label(f"$ {command}", mono=True, hexpand=True, selectable=False)
+        # A long command wraps between its words, not inside a path like
+        # 2>/dev/null (unbreakable, see unbreakable_words)
+        self.title = _label(unbreakable_words(f"$ {command}"), mono=True, hexpand=True, selectable=False)
         header = Gtk.Box(spacing=8)
-        for widget in (self.spinner, self.icon, title):
+        for widget in (self.spinner, self.icon, self.title):
             header.append(widget)
         # The expander only toggles; the output opens in a revealer below it,
         # which can animate both ways
         self.expander = Gtk.Expander(label_widget=header, margin_start=8, margin_end=8, margin_top=6, margin_bottom=6)
+        _icons_on_first_line(self.expander, header, (self.spinner, self.icon))
         self.output = _label(mono=True, css=("dim-label",), margin_start=8, margin_end=8)
         self.revealer = Gtk.Revealer(child=self.output, transition_type=Gtk.RevealerTransitionType.SLIDE_DOWN)
         self.expander.connect("notify::expanded", lambda *_: self._on_expanded())
@@ -425,6 +456,81 @@ class StreamFade:
         return GLib.SOURCE_REMOVE
 
 
+class AgentMessage(Gtk.Box):
+    """The agent's answer, drawn by block (markdown.blocks): paragraphs as
+    labels, code blocks in a frame of their own, rules as separators. Set
+    again with the whole text as it streams: the blocks it already has are
+    updated in place, so only the new text fades in (StreamFade)."""
+
+    def __init__(self, on_link, force_animations=False):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.add_css_class("chat-agent")
+        self.on_link = on_link
+        self.force_animations = force_animations
+        self.text = ""
+        self.fades = {}  # label -> StreamFade
+
+    def blocks(self):
+        child, out = self.get_first_child(), []
+        while child:
+            out.append(child)
+            child = child.get_next_sibling()
+        return out
+
+    def labels(self):
+        """The labels with the message's text, in order."""
+        return [b.label if b.kind == "code" else b for b in self.blocks() if b.kind != "rule"]
+
+    def set_text(self, text, colors, fade=True):
+        self.text = text
+        shown, blocks = self.blocks(), markdown.blocks(text)
+        for i, block in enumerate(blocks):
+            widget = shown[i] if i < len(shown) else None
+            if widget is None or widget.kind != block.kind:
+                for stale in shown[i:]:
+                    self.remove(stale)
+                shown = shown[:i]
+                widget = self._new(block)
+                self.append(widget)
+                shown.append(widget)
+            if block.kind == "text":
+                self._fill(widget, markdown.inline(block.text, colors), fade)
+            elif block.kind == "code":
+                widget.language.set_label(block.language)
+                widget.language.set_visible(bool(block.language))
+                widget.set_margin_start(16 if block.indent else 0)
+                self._fill(widget.label, markdown.code(block.text, block.language, colors), fade)
+        for stale in shown[len(blocks):]:
+            self.remove(stale)
+        labels = self.labels()
+        self.fades = {label: fade for label, fade in self.fades.items() if label in labels}
+
+    def _new(self, block):
+        if block.kind == "rule":
+            widget = Gtk.Separator(margin_top=4, margin_bottom=4)
+            widget.add_css_class("chat-rule")
+        elif block.kind == "code":
+            widget = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            widget.add_css_class("chat-code")
+            widget.language = _label(css=("caption", "dim-label"), selectable=False, visible=False)
+            widget.label = _label(mono=True)
+            widget.append(widget.language)
+            widget.append(widget.label)
+        else:
+            widget = _label()
+            widget.connect("activate-link", lambda _l, uri: self.on_link(uri))
+        widget.kind = block.kind
+        return widget
+
+    def _fill(self, label, markup, fade):
+        old_end = len(label.get_text().encode())
+        _set_markup(label, markup)
+        if label not in self.fades:
+            self.fades[label] = StreamFade(label, self.force_animations)
+        if fade:
+            self.fades[label].grew(old_end)
+
+
 class ChatView(Gtk.Box):
     def __init__(self, process, approval, force_animations=False):
         """`force_animations`: animate even when animations are off (the
@@ -434,7 +540,6 @@ class ChatView(Gtk.Box):
         self.approval = approval
         self.force_animations = force_animations
         self.steps = {}  # step index -> (row, accumulated text)
-        self.fades = {}  # step index -> StreamFade
         self._linked = None  # (command, time) the agent ran before its block showed
         self._proposed = None  # (path, diff, time) a change proposed before its card showed
         self._applied = None  # (path, (before, after), time) a change written before its card showed
@@ -484,6 +589,11 @@ class ChatView(Gtk.Box):
         self._ran_handler = None
         self.connect("realize", lambda *_: self._follow_agent_commands(True))
         self.connect("unrealize", lambda *_: self._follow_agent_commands(False))
+        # The answers' colors follow the terminal's palette and light/dark
+        self.colors = theme_colors()
+        self._theme_handlers = []
+        self.connect("realize", lambda *_: self._follow_theme(True))
+        self.connect("unrealize", lambda *_: self._follow_theme(False))
 
         self.input = Gtk.TextView(wrap_mode=Gtk.WrapMode.WORD_CHAR, accepts_tab=False,
                                   top_margin=8, bottom_margin=8, left_margin=10, right_margin=10)
@@ -623,6 +733,28 @@ class ChatView(Gtk.Box):
         animations.play(self, "chat_message", frame, None, self.force_animations)
         return widget
 
+    def _follow_theme(self, follow):
+        sources = ((Adw.StyleManager.get_default(), "notify::dark"), (Settings.get(), "notify::palette"))
+        if follow and not self._theme_handlers:
+            self._theme_handlers = [(source, source.connect(signal, lambda *_: self._recolor()))
+                                    for source, signal in sources]
+            self._recolor()  # changed while out of a window
+        elif not follow:
+            for source, handler in self._theme_handlers:
+                source.disconnect(handler)
+            self._theme_handlers = []
+
+    def _recolor(self):
+        colors = theme_colors()
+        if colors == self.colors:
+            return
+        self.colors = colors
+        child = self.messages.get_first_child()
+        while child:
+            if isinstance(child, AgentMessage):
+                child.set_text(child.text, colors, fade=False)
+            child = child.get_next_sibling()
+
     # The agent's commands in the terminal
 
     def _follow_agent_commands(self, follow):
@@ -681,13 +813,9 @@ class ChatView(Gtk.Box):
             row, text = self.steps.get(index) or (None, "")
             text += step.get("text_delta") or ""
             if row is None and text.strip():
-                row = self._add(_label(css=("chat-agent",)))
-                row.connect("activate-link", lambda _l, uri: _open_uri(self, uri))
-                self.fades[index] = StreamFade(row, self.force_animations)
+                row = self._add(AgentMessage(lambda uri: _open_uri(self, uri), self.force_animations))
             if row:
-                old_end = len(row.get_text().encode())
-                row.set_markup(markdown_to_pango(text))
-                self.fades[index].grew(old_end)
+                row.set_text(text, self.colors)
             self.steps[index] = (row, text)
         elif kind == "tool":
             name = step.get("tool_name") or ""
@@ -739,7 +867,6 @@ class ChatView(Gtk.Box):
             self._add(_label(f"{usage['total_tokens']:,} tokens · {seconds:.1f} s",
                              css=("caption", "dim-label"), selectable=False))
         self.steps.clear()
-        self.fades.clear()
 
     def on_exited(self, stopped, stderr):
         self._set_busy(False)
@@ -765,6 +892,12 @@ def _open_uri(widget, uri):
 CSS = """
 .chat-user { padding: 8px 12px; }
 .chat-agent { padding: 0 2px; }
+.chat-code {
+  padding: 8px 10px; border-radius: 8px;
+  background-color: alpha(@view_fg_color, 0.06); border: 1px solid alpha(@view_fg_color, 0.10);
+}
+.chat-rule { background-color: alpha(@view_fg_color, 0.15); }
+.command-card, .edit-card { margin-bottom: 6px; }
 .typing-dot { min-width: 6px; min-height: 6px; border-radius: 3px; background-color: alpha(@window_fg_color, 0.55); }
 @keyframes typing-pulse {
   0% { opacity: 0.25; }

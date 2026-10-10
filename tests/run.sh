@@ -83,6 +83,10 @@ echo "prompt (Preferences → Prompt, read by bash)"
 "$ROOT/tests/prompt_unit.py"; code=$?
 if [ $code = 0 ]; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
 
+echo "chat Markdown (blocks, inline markup, shell colors)"
+"$ROOT/tests/markdown_unit.py"; code=$?
+if [ $code = 0 ]; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
+
 echo "file edits (plans, diffs, safe writes)"
 "$ROOT/tests/edits_unit.py"; code=$?
 if [ $code = 0 ]; then pass=$((pass + 1)); else fail=$((fail + 1)); fi

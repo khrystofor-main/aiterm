@@ -38,7 +38,7 @@ from aiterm import animations, dbus_api, effects  # noqa: E402
 from aiterm.application import Application  # noqa: E402
 from aiterm.animations import Animations  # noqa: E402
 from aiterm import feedback_page as feedback_page_module  # noqa: E402
-from aiterm.chat_view import CommandRow, EditRow, markdown_to_pango  # noqa: E402
+from aiterm.chat_view import AgentMessage, CommandRow, EditRow, markdown_to_pango, theme_colors, unbreakable_words  # noqa: E402
 from aiterm.palettes import PALETTES  # noqa: E402
 from aiterm.preferences import PreferencesDialog  # noqa: E402
 from aiterm.prompt import COLORS  # noqa: E402
@@ -217,9 +217,9 @@ def animations_page(page):
           wait_for(lambda: blocks()[0].has_css_class("agent-link"), 3))
     check("…the bar goes when it is done", wait_for(lambda: not blocks()[0].running, 3)
           and not blocks()[0].running_bar.get_visible())
-    answer = lambda: [w for w in widgets(chat.messages) if w.has_css_class("chat-agent")]
+    answer = lambda: [label for w in widgets(chat.messages) if isinstance(w, AgentMessage) for label in w.labels()]
     check("…the answer fades in piece by piece as it streams",
-          wait_for(lambda: answer() and answer()[0].get_attributes() is not None, 3))
+          wait_for(lambda: any(label.get_attributes() is not None for label in answer()), 3))
     check("…and the dots go at the end", wait_for(lambda: not chat.thinking.get_visible(), 5))
     animations.window_active = original_window_active
     animations.finish_all()
@@ -1072,19 +1072,43 @@ def steps(app):
     check("switching the view to Chat restarts the panel with the chat",
           chat is not None and win.agent_panel.terminal is None and win.agent_panel.get_child() is chat)
     check("the chat has no agent process until the first message", not chat.process.running)
-    texts = lambda: [w.get_label() for w in widgets(chat.messages) if isinstance(w, Gtk.Label)]
+    texts = lambda: [label.get_label() for w in widgets(chat.messages)
+                     for label in (w.labels() if isinstance(w, AgentMessage) else [w])
+                     if isinstance(label, Gtk.Label)]
     chat.input.get_buffer().set_text("hello")
     chat.send()
     check("a message starts the agent and shows the reply",
           wait_for(lambda: any("1,234 tokens" in t for t in texts())) and "hello" in texts(), str(texts()))
     check("the reply's Markdown is drawn", any("You said: <b>hello</b>" in t for t in texts()), str(texts()))
+    reply = [w for w in widgets(chat.messages) if isinstance(w, AgentMessage)][-1]
+    code_block = reply.blocks()[-1]
+    check("…its code block is a framed block of its own, without the backticks",
+          [b.kind for b in reply.blocks()] == ["text", "code"] and code_block.has_css_class("chat-code")
+          and code_block.label.get_text() == "code block" and "```" not in "".join(texts()),
+          f"{[b.kind for b in reply.blocks()]} {texts()}")
+    check("…colored from the terminal's palette",
+          chat.colors.command in code_block.label.get_label(), code_block.label.get_label())
+    old_palette, old_markup = settings.palette, code_block.label.get_label()
+    settings.palette = "Tango" if old_palette != "Tango" else "GNOME"
+    check("…and colored again when the palette changes",
+          chat.colors == theme_colors() and chat.colors.command in code_block.label.get_label()
+          and code_block.label.get_label() != old_markup, code_block.label.get_label())
+    settings.palette = old_palette
     check("the input is empty again and Send is back", chat.text() == "" and chat.send_button.get_visible())
 
     Settings.get().approve_agent_commands = True
     chat.send("run: echo chat-$((5*5))")
     rows = lambda: [w for w in widgets(chat.messages) if isinstance(w, CommandRow)]
     check("run_command shows a command block", wait_for(lambda: rows()) and "$ echo chat-$((5*5))" in
-          rows()[0].expander.get_label_widget().get_last_child().get_label())
+          rows()[0].title.get_text().replace("\u2060", ""))
+    header = rows()[0].expander.get_label_widget()
+    check("…its arrow and icons sit on the title's first line",
+          isinstance(header.get_first_child(), Gtk.Image)
+          and not rows()[0].expander.get_first_child().get_first_child().get_first_child().get_visible()
+          and all(w.get_valign() == Gtk.Align.BASELINE_CENTER for w in (header.get_first_child(), rows()[0].icon)))
+    check("…and a long command wraps between its words, never inside one",
+          rows()[0].title.get_text() == unbreakable_words("$ echo chat-$((5*5))")
+          and unbreakable_words("a 2>/x") == "a 2\u2060>\u2060/\u2060x", repr(rows()[0].title.get_text()))
     check("…with Run / Don't Run while it waits for approval",
           wait_for(lambda: rows()[0].buttons.get_visible()) and win.approval.pending)
     check("…asked only there: the bar above the terminal stays hidden", not win.approval.get_reveal_child())
