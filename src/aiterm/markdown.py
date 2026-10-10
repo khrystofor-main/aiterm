@@ -134,16 +134,30 @@ def code_span(text, colors=None):
             f'background="{colors.code}" bgalpha="14%">{_escape(text)}</span>')
 
 
+# `code`, ``code with ` in it``: as in CommonMark, the closing run of
+# backticks is as long as the opening one, so a shorter or longer run inside
+# (a ``` written in the text) is part of the code
+CODE_SPAN = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)")
+
+
+def _code_text(text):
+    """A code span's text: one space inside each backtick run is padding
+    (`` `x` ``), unless the span is only spaces."""
+    if len(text) > 1 and text[0] == text[-1] == " " and text.strip(" "):
+        return text[1:-1]
+    return text
+
+
 def inline(text, colors=None):
     """A text block as markup: headings, list bullets, `code`, **bold**,
     *italic*, ~~struck~~ and links."""
     spans = []
 
     def stash(match):
-        spans.append(code_span(match[2], colors))
+        spans.append(code_span(_code_text(match[2]), colors))
         return f"\x00{len(spans) - 1}\x00"
     # Code first, so nothing inside it is taken for formatting
-    text = re.sub(r"(`+)(.+?)\1", stash, text.replace("\x00", ""))
+    text = CODE_SPAN.sub(stash, text.replace("\x00", ""))
 
     def link(match):  # the tags stashed too: no formatting in the address
         spans.extend((f'<a href="{html.escape(match[2])}">', "</a>"))

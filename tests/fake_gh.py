@@ -129,6 +129,12 @@ def main(argv):
         tag = hashlib.sha1(json.dumps(found).encode()).hexdigest()
         done(304, None, tag) if etag == tag else done(200, found, tag)
     parts = rest.split("/")
+    if len(parts) == 3 and parts[1] == "issues" and method == "PATCH":  # gh's issue reopen / close
+        issue = next(i for i in state["issues"] if i["number"] == int(parts[2]))
+        if "state" in body:
+            issue["state"] = body["state"]
+            issue["updated_at"] = now(state)
+        done(200, issue)
     if len(parts) == 4 and parts[1] == "issues" and parts[3] == "comments":
         number = int(parts[2])
         issue = next(i for i in state["issues"] if i["number"] == number)

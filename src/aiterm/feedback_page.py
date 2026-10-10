@@ -162,8 +162,11 @@ class FeedbackMonitor(GObject.Object):
         os.replace(tmp, self.path)
 
     def sent(self, number):
+        """A feedback was sent or answered: it is open (again, after a
+        reply to a finished one), so polling and notifications go on."""
         self.state.setdefault("seen", [])
-        self.state.setdefault("open", []).append(number)
+        if number not in self.state.setdefault("open", []):
+            self.state["open"].append(number)
         self.save()
         self.refresh()
 
@@ -443,7 +446,8 @@ def message_markup(text):
 
 class Conversation(Adw.NavigationPage):
     """One feedback: the user's text and replies on the right, Claude's on the
-    left, and a box to answer while it is open."""
+    left, and a box to answer. A reply to a finished feedback opens it
+    again: a follow-up Claude takes up in the same conversation."""
 
     def __init__(self, page, number):
         super().__init__(title=f"#{number}")
@@ -465,20 +469,29 @@ class Conversation(Adw.NavigationPage):
         self.send_button.add_css_class("circular")
         self.send_button.add_css_class("suggested-action")
         self.send_button.connect("clicked", lambda _b: self.send())
-        self.answer_bar = Gtk.Box(spacing=8, margin_top=6, margin_bottom=12, margin_start=12, margin_end=12)
+        self.answer_bar = Gtk.Box(spacing=8)
         answer_box = text_box(self.answer, 24)
         answer_box.set_hexpand(True)
         self.answer_bar.append(answer_box)
         self.answer_bar.append(self.send_button)
+        # Under a finished feedback: answering opens it again
+        self.reopen_hint = Gtk.Label(label="Done. Write more to reopen it with a follow-up", xalign=0,
+                                     wrap=True, visible=False, margin_start=12)
+        self.reopen_hint.add_css_class("caption")
+        self.reopen_hint.add_css_class("dim-label")
+        bottom = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, margin_top=6, margin_bottom=12,
+                         margin_start=12, margin_end=12)
+        bottom.append(self.reopen_hint)
+        bottom.append(self.answer_bar)
         view = Adw.ToolbarView(content=self.scroller)
         view.add_top_bar(header)
-        view.add_bottom_bar(Adw.Clamp(child=self.answer_bar, maximum_size=640))
+        view.add_bottom_bar(Adw.Clamp(child=bottom, maximum_size=640))
         self.set_child(view)
         self.connect("shown", lambda *_: self._focus())
         self.update()
 
     def _focus(self):
-        (self.answer if self.answer_bar.get_visible() else self.github).grab_focus()
+        self.answer.grab_focus()
         # A message's label that had the focus first keeps all its text selected
         for label in self.labels:
             label.select_region(0, 0)
@@ -496,7 +509,9 @@ class Conversation(Adw.NavigationPage):
         self.labels = []
         for message in item.messages:
             self.messages.append(self._bubble(message))
-        self.answer_bar.set_visible(item.state == "open")
+        closed = item.state != "open"
+        self.reopen_hint.set_visible(closed)
+        self.send_button.set_tooltip_text("Reopen and Answer" if closed else "Answer")
         GLib.idle_add(self._scroll_down)
 
     def _scroll_down(self):
@@ -535,9 +550,11 @@ class Conversation(Adw.NavigationPage):
         text = text_of(self.answer).strip()
         if not text:
             return
+        item = self.item()
+        reopen = bool(item) and item.state != "open"
         self.send_button.set_sensitive(False)
         self.answer.set_sensitive(False)
-        in_background(lambda: feedback.reply(self.number, text), self._sent)
+        in_background(lambda: feedback.reply(self.number, text, reopen=reopen), self._sent)
 
     def _sent(self, _result, error):
         self.answer.set_sensitive(True)
@@ -546,4 +563,4 @@ class Conversation(Adw.NavigationPage):
             self.page.toast(f"Not sent: {error}")
             return
         self.answer.get_buffer().set_text("")
-        self.page.monitor.refresh()
+        self.page.monitor.sent(self.number)

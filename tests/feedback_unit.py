@@ -190,6 +190,29 @@ check("…and nothing once Claude answered", code == 0 and out == "", (code, out
 feedback.reply(2, "Also the tabs")
 code, out, err = watch("--interval", "0.1")
 check("…waits for and shows a reply", code == 0 and out == "#2 reply: Second — Also the tabs", (code, out, err))
+
+# A follow-up on a finished feedback: the reply reopens it
+claude_says(1, "done", "Done: the chat font is 14 pt")
+calls = len(state()["calls"])
+feedback.reply(2, "And the tab bar")
+check("a reply to an open feedback does not reopen it",
+      [c for c in state()["calls"][calls:] if c[0] == "PATCH"] == [], state()["calls"][calls:])
+calls = len(state()["calls"])
+feedback.reply(1, "Now a bit smaller please", reopen=True)
+data = state()
+check("a reply to a closed feedback reopens it, then comments",
+      data["calls"][calls:] == [["PATCH", "repos/khrystofor-main/aiterm/issues/1"],
+                                ["POST", "repos/khrystofor-main/aiterm/issues/1/comments"]]
+      and data["issues"][0]["state"] == "open", data["calls"][calls:])
+first = next(i for i in tracker.poll() if i.number == 1)
+check("…it waits for Claude again (Sent), and Claude is needed",
+      first.state == "open" and first.status == "sent" and first.needs_claude, (first.state, first.status))
+code, out, err = watch("--once")
+check("…and the watcher shows the reply",
+      code == 0 and "#1 reply: Font is too small — Now a bit smaller please" in out.splitlines(), (code, out, err))
+claude_says(1, "status", "Making it 13 pt")
+check("…In Progress once Claude answers", next(i for i in tracker.poll() if i.number == 1).status == "working")
+
 change(logged_in=False)
 code, out, err = watch("--once")
 check("…and says when gh can't reach GitHub", code == 1 and "gh auth login" in err, (code, out, err))

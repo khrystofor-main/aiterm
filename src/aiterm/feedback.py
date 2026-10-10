@@ -277,7 +277,12 @@ def browser_url(text, context_md, limit=6000):
     return f"https://github.com/{REPO}/issues/new?{query}"
 
 
-def reply(number, text):
+def reply(number, text, reopen=False):
+    """Comments on the feedback. On a closed one (`reopen`) the issue opens
+    again first, so the reply is a follow-up Claude picks up (the watcher
+    reads only open issues)."""
+    if reopen:
+        api(f"repos/{REPO}/issues/{number}", "PATCH", {"state": "open"})
     api(f"repos/{REPO}/issues/{number}/comments", "POST", {"body": text.strip()})
 
 
@@ -341,6 +346,8 @@ def status_of(state, messages):
     if last_claude is None:
         return "sent"
     kind = messages[last_claude].kind or "status"
+    if kind == "done" and last_claude < len(messages) - 1:
+        return "sent"  # reopened with a follow-up: waits for Claude again
     if kind == "question" and last_claude < len(messages) - 1:
         return "working"  # answered
     return {"status": "working", "question": "question", "pr": "pr", "done": "done"}[kind]
