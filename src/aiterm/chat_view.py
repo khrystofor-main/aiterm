@@ -7,7 +7,8 @@ run_command is a collapsible block with the command, its output and exit
 code, and Run / Don't Run while it waits for approval (approval.py). A
 change to a file is a card with its diff: edit_file / write_file with
 Apply / Reject while it waits, agy's own file tools as a record of what
-they wrote (edits.py, diff_view.py).
+they wrote (edits.py, diff_view.py). Ctrl+Enter answers a waiting card's
+Run / Apply and Escape its Don't Run / Reject while the focus is in the chat.
 
 Animations follow the preset (animations.py): new rows fade in rising from
 below, the agent's text fades in piece by piece as it streams, command
@@ -78,6 +79,23 @@ def _label(text="", css=(), markup=False, mono=False, **kwargs):
     return label
 
 
+# The keys that answer the request on a chat card (ChatView), shown on its buttons
+ACCEPT_KEYS = ("<Control>Return", "<Control>KP_Enter")
+REJECT_KEYS = ("Escape",)
+ACCEPT_HINT, REJECT_HINT = "Ctrl+Enter", "Esc"
+
+
+def _key_button(text, hint):
+    """A button with its key on it, dimmed, after the label."""
+    box = Gtk.Box(spacing=8)
+    box.append(Gtk.Label(label=text))
+    key = Gtk.Label(label=hint)
+    key.add_css_class("caption")
+    key.add_css_class("dim-label")
+    box.append(key)
+    return Gtk.Button(child=box, tooltip_text=f"{text} ({hint})")
+
+
 class CommandRow(Gtk.Box):
     """run_command: `$ command`, collapsible output and exit code, and the
     approval buttons while the command waits for the user."""
@@ -114,10 +132,10 @@ class CommandRow(Gtk.Box):
         self.status = _label(css=("caption", "dim-label"), margin_start=8, margin_end=8, visible=False)
         self.append(self.status)
         self.buttons = Gtk.Box(spacing=6, halign=Gtk.Align.END, margin_end=8, margin_bottom=8, visible=False)
-        self.run_button = Gtk.Button(label="Run")
+        self.run_button = _key_button("Run", ACCEPT_HINT)
         self.run_button.add_css_class("suggested-action")
         self.run_button.connect("clicked", lambda *_: approval.answer(True))
-        self.skip_button = Gtk.Button(label="Don't Run")
+        self.skip_button = _key_button("Don't Run", REJECT_HINT)
         self.skip_button.connect("clicked", lambda *_: approval.answer(False))
         self.buttons.append(self.skip_button)
         self.buttons.append(self.run_button)
@@ -212,9 +230,9 @@ class EditRow(Gtk.Box):
         self.status = _label(css=("caption", "dim-label"), margin_start=8, margin_end=8, visible=False)
         self.append(self.status)
         self.buttons = Gtk.Box(spacing=6, halign=Gtk.Align.END, margin_end=8, margin_bottom=8, visible=False)
-        self.reject_button = Gtk.Button(label="Reject")
+        self.reject_button = _key_button("Reject", REJECT_HINT)
         self.reject_button.connect("clicked", lambda *_: self._answer(False))
-        self.apply_button = Gtk.Button(label="Apply")
+        self.apply_button = _key_button("Apply", ACCEPT_HINT)
         self.apply_button.add_css_class("suggested-action")
         self.apply_button.connect("clicked", lambda *_: self._answer(True))
         self.undo_button = Gtk.Button(label="Undo", visible=False,
@@ -473,6 +491,17 @@ class ChatView(Gtk.Box):
         keys = Gtk.EventControllerKey()
         keys.connect("key-pressed", self._on_key)
         self.input.add_controller(keys)
+        # Ctrl+Enter / Escape answer the request on a card, wherever the focus
+        # is in the chat. Capture phase: before the input sends on Enter.
+        # Without a request in the chat they do nothing here.
+        answer_keys = Gtk.ShortcutController(propagation_phase=Gtk.PropagationPhase.CAPTURE)
+        for triggers, accept in ((ACCEPT_KEYS, True), (REJECT_KEYS, False)):
+            for trigger in triggers:
+                answer_keys.add_shortcut(Gtk.Shortcut(
+                    trigger=Gtk.ShortcutTrigger.parse_string(trigger),
+                    action=Gtk.CallbackAction.new(lambda *_, accept=accept: self.answer_request(accept)),
+                ))
+        self.add_controller(answer_keys)
         input_scroller = Gtk.ScrolledWindow(child=self.input, hexpand=True, propagate_natural_height=True,
                                             max_content_height=160, hscrollbar_policy=Gtk.PolicyType.NEVER)
         input_scroller.add_css_class("card")
@@ -511,6 +540,14 @@ class ChatView(Gtk.Box):
         self._stick = True
         self.process.send(text)
         self._set_busy(True)
+
+    def answer_request(self, accept):
+        """Run / Apply (True) or Don't Run / Reject (False) for the request a
+        card in the chat shows; False when there is none (the key goes on)."""
+        if not (self.approval.pending and self.approval.shown_in_chat):
+            return False
+        self.approval.answer(accept)
+        return True
 
     def _on_key(self, _controller, keyval, _keycode, state):
         if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter) and not state & Gdk.ModifierType.SHIFT_MASK:

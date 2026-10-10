@@ -49,6 +49,10 @@ SHORTCUTS_HELP = [
         ("Zoom Out", "win.zoom-out"),
         ("Reset Zoom", "win.zoom-reset"),
     ]),
+    ("Agent Chat", [
+        ("Run or Apply the Agent's Request", "<Control>Return"),
+        ("Don't Run or Reject It", "Escape"),
+    ]),
 ]
 
 
