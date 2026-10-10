@@ -14,6 +14,7 @@ space after them when there is nothing to show.
 """
 
 import os
+import unicodedata
 from dataclasses import dataclass
 
 from aiterm.settings import Settings, config_dir
@@ -99,15 +100,36 @@ def _sgr(color, bold):
 RESET = r"\[\e[0m\]"
 
 
-def build_ps1(spec, symbol="dollar", two_lines=False, bold=True):
-    """The PS1 for these settings."""
+def clean_text(text):
+    """The user's own text for a segment, on one line: control characters
+    (newlines, escape sequences) would break the prompt, so they go. Emoji
+    joiners and variation selectors stay."""
+    return "".join(c for c in (text or "") if unicodedata.category(c) not in ("Cc", "Zl", "Zp")).strip()
+
+
+def ps1_literal(text):
+    r"""`text` as PS1 that bash shows as it is. Bash first decodes the
+    prompt's backslash escapes (\u, \w…), then expands $, `…` and \ in the
+    result as in double quotes (promptvars). So a \ is written \\\\ and $ and `
+    get \\ in front: decoding leaves one backslash, which the expansion
+    takes as "literally". Emoji and other printable text stay as they are,
+    outside \[ \], so bash counts their width."""
+    return clean_text(text).replace("\\", "\\" * 4).replace("$", r"\\$").replace("`", r"\\`")
+
+
+def build_ps1(spec, symbol="dollar", two_lines=False, bold=True, user_host=""):
+    """The PS1 for these settings; `user_host`, when set, is shown instead
+    of user@host."""
     parts = []
     for item in parse_segments(spec):
         if not item.enabled:
             continue
         segment = SEGMENTS[item.key]
         if segment.escape:
-            parts.append(f"{_sgr(item.color, bold)}{segment.escape}{RESET} ")
+            escape = segment.escape
+            if item.key == "user_host" and clean_text(user_host):
+                escape = ps1_literal(user_host)
+            parts.append(f"{_sgr(item.color, bold)}{escape}{RESET} ")
         else:
             value = segment.template.format("${%s}" % segment.var)
             parts.append("${%s:+%s%s%s }" % (segment.var, _sgr(item.color, bold), value, RESET))
@@ -116,7 +138,7 @@ def build_ps1(spec, symbol="dollar", two_lines=False, bold=True):
     return "".join(parts)
 
 
-def preview_markup(spec, symbol, two_lines, bold, palette, dark):
+def preview_markup(spec, symbol, two_lines, bold, palette, dark, user_host=""):
     """Pango markup of the prompt with sample values, in `palette`'s colors."""
     from html import escape
 
@@ -128,7 +150,12 @@ def preview_markup(spec, symbol, two_lines, bold, palette, dark):
         weight = ' weight="bold"' if bold else ""
         return f'<span foreground="{value}"{weight}>{escape(text)}</span>'
 
-    text = "".join(span(SEGMENTS[i.key].sample, i.color) + " " for i in parse_segments(spec) if i.enabled)
+    def sample(key):
+        if key == "user_host" and clean_text(user_host):
+            return clean_text(user_host)
+        return SEGMENTS[key].sample
+
+    text = "".join(span(sample(i.key), i.color) + " " for i in parse_segments(spec) if i.enabled)
     if two_lines:
         text = text.rstrip(" ") + "\n"
     return text + span(SYMBOLS.get(symbol, SYMBOLS["dollar"])[2], "default") + " "
@@ -152,11 +179,12 @@ def write_prompt_file(settings):
     tmp = path + ".tmp"
     with open(tmp, "w") as f:
         f.write(build_ps1(settings.prompt_segments, settings.prompt_symbol,
-                          settings.prompt_two_lines, settings.prompt_bold))
+                          settings.prompt_two_lines, settings.prompt_bold, settings.prompt_user_host))
     os.replace(tmp, path)  # a shell never reads half a prompt
 
 
-PROPERTIES = ("custom-prompt", "prompt-segments", "prompt-symbol", "prompt-two-lines", "prompt-bold")
+PROPERTIES = ("custom-prompt", "prompt-segments", "prompt-symbol", "prompt-two-lines", "prompt-bold",
+              "prompt-user-host")
 
 
 def follow(settings):

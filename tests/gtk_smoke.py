@@ -255,6 +255,10 @@ def prompt_page(page, term, log):
     check("the switch turns Aiterm's prompt on", settings.custom_prompt and page.segments.get_sensitive())
     page.symbol_row.set_selected(PROMPT_SYMBOLS.index("arrow"))
     keys = [row.item.key for row in page.rows]
+    page.user_host_row.set_text("🦊 fox")
+    check("the User and Host text goes to the settings and the preview",
+          settings.prompt_user_host == "🦊 fox" and "🦊 fox" in page.preview.get_label(), page.preview.get_label())
+    page.user_host_row.set_text("")
     page.rows[keys.index("user_host")].check.set_active(False)
     cwd_row = page.rows[keys.index("cwd")]
     cwd_row.up.emit("clicked")

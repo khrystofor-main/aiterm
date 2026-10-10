@@ -51,6 +51,8 @@ NOT_PREFERENCES = {
     "window_width", "window_height", "window_maximized", "agent_panel_visible", "agent_panel_width",
     "animations_hint_shown",
 }
+# The user's own text: reported as set, without the text (it can be their name)
+PRIVATE_PREFERENCES = {"prompt_user_host"}
 
 SRC_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -155,7 +157,7 @@ def changed_settings(settings):
         key = spec.name.replace("-", "_")
         value = settings.get_property(key)
         if key not in NOT_PREFERENCES and value != spec.get_default_value():
-            out[key] = value
+            out[key] = "(set)" if key in PRIVATE_PREFERENCES else value
     return out
 
 
