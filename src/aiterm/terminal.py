@@ -84,6 +84,7 @@ class Terminal(Vte.Terminal):
 
         self.settings = Settings.get()
         self._colors = None  # (foreground, background, palette) last set
+        self._foreground = None  # the text color now, mid-way through a change too
         self.effects = TerminalEffects(self)
         self._interface = self._interface_settings()
         self._handlers = []
@@ -95,6 +96,7 @@ class Terminal(Vte.Terminal):
             self._apply_behavior: [(self.settings, f"notify::{name}") for name in (
                 "unlimited-scrollback", "scrollback-lines", "cursor-shape", "cursor-blink",
                 "audible-bell")],
+            self._redraw: [(self.settings, "notify::mark-command-lines")],
         }
         if self._interface:
             self._appliers[self._apply_font].append((self._interface, "changed::monospace-font-name"))
@@ -406,7 +408,15 @@ class Terminal(Vte.Terminal):
 
     def _set_colors(self, colors):
         fg, bg, palette = colors
+        self._foreground = fg
         self.set_colors(fg, bg, palette)
+
+    def _redraw(self):
+        self.queue_draw()
+
+    def foreground(self):
+        """The text color as it is now (also mid-way through a color change)."""
+        return self._foreground or _rgba("#ffffff")
 
     def show_color_change(self):
         """Moves to the other light/dark style's colors and back (a preview)."""

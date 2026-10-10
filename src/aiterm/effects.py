@@ -10,6 +10,11 @@ draws the output at once, and the effects are painted on top of it.
   * the terminal's colors move to a new palette or light/dark style; the
     text keeps its contrast on the way.
 
+Not an animation, drawn here as it sits in the same place: a dot at the end
+of every line where the user typed a command, so their commands stand out
+from the output (the "Mark Command Lines" preference). A ✗ mark moves left
+to make room for it.
+
 Rows come from the command log (commands.py); the numbers from the current
 animation preset (animations.py), taken when an effect starts. Timing is a
 pure function of the time since then, read from `clock`, so tests can move
@@ -30,6 +35,7 @@ import time
 from gi.repository import Adw, Gdk, GLib, Graphene, Gsk, Gtk, Pango, Vte
 
 from aiterm.animations import Animations, progress
+from aiterm.settings import Settings
 
 # New output is gathered into one zone at most this often
 STRIPE_UPDATE_MS = 100
@@ -38,6 +44,9 @@ REMOTE_PROGRAMS = {"ssh", "mosh-client", "et", "telnet"}
 MAX_MARKS = 500
 # The ✗ mark: space around its text, and how see-through it gets under the pointer
 MARK_PADDING_X, MARK_HOVER_ALPHA = 6, 0.3
+# The command line dot: its slot at the right end of the row and its size,
+# in char heights, and how much of the text color it takes
+DOT_SLOT, DOT_SIZE, DOT_ALPHA = 1.0, 0.4, 0.8
 
 # Exit codes that are not failures: Ctrl+C, Ctrl+Z
 NOT_FAILURES = {130, 148}
@@ -430,6 +439,48 @@ class TerminalEffects:
         from aiterm.terminal import PADDING_X, PADDING_Y
         return point[0] - PADDING_X, point[1] - PADDING_Y
 
+    # Command lines
+
+    def dots_shown(self):
+        return Settings.get().mark_command_lines
+
+    def _dot_slot(self):
+        """Width the dots take at the right end of the rows, 0 when off."""
+        return round(self.terminal.get_char_height() * DOT_SLOT) if self.dots_shown() else 0
+
+    def dot_rows(self):
+        """The visible rows that get a dot: the rows commands were typed on,
+        the current prompt's too, while they still start with their prompt
+        (rows can be renumbered or rewrapped since). None on the alternate
+        screen or under ssh, as with the output effects."""
+        log = self.terminal.command_log
+        if not (self.dots_shown() and log.input_rows):
+            return []
+        if log.running and not self._output_effects_apply():
+            return []
+        top, count = self.terminal.top_row(), self.terminal.get_row_count()
+        rows = []
+        for row, prompt in reversed(log.input_rows):
+            if row < top:
+                break  # oldest first: the rest are above the view
+            if row >= top + count:
+                continue
+            prompt = prompt.strip()
+            if prompt:
+                line, _ = self.terminal.get_text_range_format(Vte.Format.TEXT, row, 0, row, 10_000)
+                if not (line or "").lstrip().startswith(prompt):
+                    continue
+            rows.append(row)
+        return rows[::-1]
+
+    def dot_rect(self, row):
+        """The dot's square on a row (in the text area)."""
+        height = self.terminal.get_char_height()
+        slot, size = self._dot_slot(), max(round(height * DOT_SIZE), 3)
+        x = self.terminal.get_width() - (slot + size) / 2
+        y = (row - self.terminal.top_row()) * height + (height - size) / 2
+        return Graphene.Rect().init(x, y, size, size)
+
     def _visible_marks(self):
         if not self.marks:
             return []
@@ -453,14 +504,16 @@ class TerminalEffects:
         height = self.terminal.get_char_height()
         width = logical.width + 2 * MARK_PADDING_X
         y = (mark.first - self.terminal.top_row()) * height
-        return Graphene.Rect().init(self.terminal.get_width() - width, y, width, height), layout
+        x = self.terminal.get_width() - self._dot_slot() - width  # left of the dot
+        return Graphene.Rect().init(x, y, width, height), layout
 
     def draw(self, snapshot, draw_terminal):
         """Paints the effects over the terminal. `draw_terminal(snapshot)`
         draws the terminal's text again (for the shaking row)."""
         self.prune()
         marks = self._visible_marks()
-        if not (self.shakes or self.stripes or marks):
+        dots = self.dot_rows()
+        if not (self.shakes or self.stripes or marks or dots):
             return
         from aiterm.terminal import PADDING_X  # the terminal imports us
 
@@ -495,6 +548,16 @@ class TerminalEffects:
             stripe_width = min(p["width"], PADDING_X)
             x = -(PADDING_X + stripe_width) / 2  # centered in the left padding
             snapshot.append_color(color, Graphene.Rect().init(x, y1, stripe_width, y2 - y1))
+
+        if dots:
+            color = with_alpha(term.foreground(), DOT_ALPHA)
+            for row in dots:
+                rect = self.dot_rect(row)
+                circle = Gsk.RoundedRect()
+                circle.init_from_rect(rect, rect.get_width() / 2)
+                snapshot.push_rounded_clip(circle)
+                snapshot.append_color(color, rect)
+                snapshot.pop()
 
         pointer = self._content_point(self._pointer) if self._pointer else None
         for mark in marks:

@@ -615,6 +615,39 @@ def steps(app):
           f"{rows(fx.shakes)} {[(m.first, m.started) for m in fx.marks]}")
     fx.window_active = lambda: True
 
+    # A dot at the end of every command line (Mark Command Lines)
+    term.feed_child(b"clear\n")
+    wait_for(lambda: last().text == "clear" and term.top_row() == log.input_row, 5)
+    fx.clear()
+    for command in (b"echo dot-a", b"false", b"echo dot-b"):
+        term.feed_child(command + b"\n")
+        wait_for(lambda: last().text == command.decode() and not log.running)
+    spin(0.2)
+    typed = [c.input_row for c in log.commands[-3:]]
+    check("every command line gets a dot, the prompt being typed at too",
+          fx.dot_rows() == typed + [log.input_row], f"{fx.dot_rows()} {typed} {log.input_row}")
+    failed_row = typed[1]
+    mark = next((m for m in fx.marks if m.first == failed_row), None)
+    dot = fx.dot_rect(failed_row)
+    mark_rect = fx._mark_rect(mark)[0] if mark else None
+    check("…on a failed command's line, right of its ✗ without touching it",
+          mark_rect is not None and mark_rect.get_x() + mark_rect.get_width() <= dot.get_x()
+          and dot.get_x() + dot.get_width() <= term.get_width()
+          and mark_rect.get_y() <= dot.get_y() < mark_rect.get_y() + mark_rect.get_height(),
+          f"mark {mark_rect and (mark_rect.get_x(), mark_rect.get_width())} dot {dot.get_x(), dot.get_width()}")
+    term.feed_child(b"printf '\\e[?1049hfull screen\\n'; sleep 1; printf '\\e[?1049l'\n")
+    wait_for(lambda: log.running and "full screen" in screen_text(term), 3)
+    check("…none on the alternate screen", log.running and fx.dot_rows() == [], str(fx.dot_rows()))
+    wait_for(lambda: not log.running, 5)
+    spin(0.2)
+    check("…back after it", len(fx.dot_rows()) == 5, str(fx.dot_rows()))
+    Settings.get().mark_command_lines = False
+    check("…and none with the preference off, the ✗ back at the edge",
+          fx.dot_rows() == [] and fx._mark_rect(mark)[0].get_x() + fx._mark_rect(mark)[0].get_width()
+          == term.get_width())
+    Settings.get().mark_command_lines = True
+    fx.clear()
+
     old_background, old_palette = background(term), Settings.get().palette
     Settings.get().palette = "Solarized"
     new = term._colors[1]  # Solarized's background in the current light/dark style

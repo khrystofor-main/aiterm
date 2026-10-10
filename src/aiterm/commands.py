@@ -80,6 +80,9 @@ class CommandLog:
         self.on_finished = on_finished
         self.commands = []
         self.prompt_rows = []
+        # (row, prompt text) of every prompt's input row, oldest first: the
+        # lines the user types commands on (the dots in effects.py)
+        self.input_rows = []
         self._prompt = None  # the prompt the running or next command was typed at
         self._running = None  # (start time, text) while a command runs
         self._ending = None  # (text, seconds) of a command that ended before its prompt
@@ -187,6 +190,13 @@ class CommandLog:
             self._prompt = batch.prompt
             self.prompt_rows.append(batch.prompt.row)
             del self.prompt_rows[:-MAX_COMMANDS]
+            rows = self.input_rows
+            # Rows at or below the new prompt were renumbered (`clear`) or
+            # are the same prompt drawn again
+            while rows and rows[-1][0] >= batch.prompt.input_row:
+                rows.pop()
+            rows.append((batch.prompt.input_row, batch.prompt.text))
+            del rows[:-MAX_COMMANDS]
         return GLib.SOURCE_REMOVE
 
     def _end(self, text, batch, seconds):
