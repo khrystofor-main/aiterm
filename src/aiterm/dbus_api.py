@@ -18,6 +18,7 @@ import subprocess
 from gi.repository import Gio, GLib, Vte
 
 from aiterm import TERMINAL_INTERFACE as INTERFACE
+from aiterm import edits
 from aiterm.settings import Settings
 ERROR_NO_WINDOW = "io.github.khrystofor_main.Aiterm.Error.NoWindow"
 
@@ -41,6 +42,15 @@ XML = f"""
       <arg name="timeout" type="u" direction="in"/>
       {"".join(f'<arg name="{n}" type="{t}" direction="out"/>' for n, t in
                (("status", "s"), ("folder", "s"), ("command", "s"), ("output", "s"), ("exit_code", "i")))}
+    </method>
+    <method name="ProposeEdit">
+      <arg name="window" type="u" direction="in"/>
+      <arg name="path" type="s" direction="in"/>
+      <arg name="before" type="s" direction="in"/>
+      <arg name="existed" type="b" direction="in"/>
+      <arg name="after" type="s" direction="in"/>
+      <arg name="status" type="s" direction="out"/>
+      <arg name="detail" type="s" direction="out"/>
     </method>
     <method name="Wait">
       <arg name="window" type="u" direction="in"/>
@@ -142,6 +152,30 @@ class TerminalApi:
             window.approval.emit("agent-ran", command)
         terminal.feed_child(command.encode() + b"\r")
         self._wait_for_command(invocation, terminal, timeout)
+
+    def _ProposeEdit(self, invocation, terminal, path, before, existed, after):
+        """The agent's change to a file (planned by the MCP server, edits.py):
+        the diff goes to the chat, and the file is written once the user
+        clicks Apply, if it still holds the text the diff was made from."""
+        before = before if existed else None
+        window = terminal.get_root()
+        diff = edits.diff(before, after, path)
+        window.approval.emit("edit-proposed", path, "\n".join(diff))
+
+        def write():
+            try:
+                edits.write(path, before, after)
+            except edits.EditError as error:
+                status = "changed" if isinstance(error, edits.Changed) else "failed"
+                return invocation.return_value(GLib.Variant("(ss)", (status, str(error))))
+            invocation.return_value(GLib.Variant("(ss)", ("applied", "")))
+
+        if not Settings.get().approve_agent_edits:
+            return write()
+        if window.approval.pending:
+            return invocation.return_value(GLib.Variant("(ss)", ("busy", "")))
+        window.approval.ask_edit(path, diff, lambda apply: write() if apply else invocation.return_value(
+            GLib.Variant("(ss)", ("rejected", ""))), terminal)
 
     def _Wait(self, invocation, terminal, timeout):
         if not terminal.command_log.running and not terminal.running_program():

@@ -213,6 +213,7 @@ class Runner:
 
         def start(app):
             Settings.get().approve_agent_commands = False  # nobody to click Run
+            Settings.get().approve_agent_edits = False  # …or Apply
             try:
                 for scenario in scenarios:
                     for trial in range(self.args.repeat):

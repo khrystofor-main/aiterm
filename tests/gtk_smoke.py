@@ -36,7 +36,7 @@ import aiterm.window as window_module  # noqa: E402
 from aiterm import animations, dbus_api, effects  # noqa: E402
 from aiterm.application import Application  # noqa: E402
 from aiterm.animations import Animations  # noqa: E402
-from aiterm.chat_view import CommandRow, markdown_to_pango  # noqa: E402
+from aiterm.chat_view import CommandRow, EditRow, markdown_to_pango  # noqa: E402
 from aiterm.palettes import PALETTES  # noqa: E402
 from aiterm.preferences import PreferencesDialog  # noqa: E402
 from aiterm.settings import Settings  # noqa: E402
@@ -567,7 +567,7 @@ def steps(app):
             "structuredContent", result)
 
     mcp("initialize", {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "test"}})
-    check("the MCP server lists its tools inside aiterm", len(mcp("tools/list", {}).get("tools", [])) == 4)
+    check("the MCP server lists its tools inside aiterm", len(mcp("tools/list", {}).get("tools", [])) == 6)
     error, text, data = tool("run_command", command="echo mcp-$((4*4))")
     check("run_command runs in the user's terminal",
           not error and data["output"] == "mcp-16" and data["exit_code"] == 0
@@ -604,6 +604,46 @@ def steps(app):
     error, text, data = tool("run_command", command="echo never")
     check("a declined command is a tool error that says so", error and "chose not to run" in text, repr(text))
     Settings.get().approve_agent_commands = False
+
+    # The file tools: the change waits for Apply in the bar, then the app writes it
+    edited = os.path.join(CONFIG_DIR, "edit-me.py")
+    with open(edited, "w") as f:
+        f.write("def total(items):\n    totla = 0\n    return totla\n")
+    Settings.get().approve_agent_edits = True
+    seen = []
+
+    def look_and_answer(apply):
+        seen.append((win.approval.kind, win.approval.title.get_label(), win.approval.run_button.get_label(),
+                     win.approval.diff.label.get_text(), open(edited).read()))
+        win.approval.answer(apply)
+    GLib.timeout_add(300, lambda: look_and_answer(True) and False)
+    error, text, data = tool("edit_file", path=edited, old_text="totla", new_text="total", replace_all=True)
+    check("edit_file shows the change above the terminal with Apply",
+          seen and seen[0][:3] == ("edit", "The agent wants to change edit-me.py", "Apply")
+          and "-    totla = 0" in seen[0][3] and "+    total = 0" in seen[0][3], repr(seen))
+    check("…writes nothing before Apply", seen and "totla" in seen[0][4], repr(seen))
+    check("…and the change after it", not error and open(edited).read().count("total") == 3
+          and data.get("status") == "applied" and (data["added"], data["removed"]) == (2, 2), repr((text, data)))
+    GLib.timeout_add(300, lambda: win.approval.answer(False) and False)
+    error, text, data = tool("edit_file", path=edited, old_text="return total", new_text="return 0")
+    check("a rejected change is a tool error that says so, and nothing is written",
+          error and "rejected the change" in text and "return total" in open(edited).read(), repr(text))
+
+    def change_meanwhile():
+        with open(edited, "a") as f:
+            f.write("# the user typed this\n")
+        win.approval.answer(True)
+    GLib.timeout_add(300, lambda: change_meanwhile() and False)
+    error, text, data = tool("edit_file", path=edited, old_text="return total", new_text="return 0")
+    check("a file that changed while the user looked is left alone, and the model told to read it again",
+          error and "Read it again" in text and "return total" in open(edited).read(), repr(text))
+    Settings.get().approve_agent_edits = False
+    term.feed_child(f"cd {CONFIG_DIR}\n".encode())
+    wait_for(lambda: term.current_directory() == CONFIG_DIR)
+    error, text, data = tool("write_file", path="notes/new.txt", content="hello\n")
+    check("without asking, write_file creates a file at once, relative to the terminal's folder",
+          not error and open(os.path.join(CONFIG_DIR, "notes", "new.txt")).read() == "hello\n"
+          and not win.approval.pending, repr(text))
     term.feed_child(b"cd ~\n")
     wait_for(lambda: last().text == "cd ~")
     exited = []
@@ -889,6 +929,42 @@ def steps(app):
           wait_for(lambda: rows()[1].status.has_css_class("error")) and "chose not to run" in rows()[1].status.get_label(),
           rows()[1].status.get_label())
     Settings.get().approve_agent_commands = False
+    wait_for(lambda: not chat.process.busy)
+
+    # The agent's file changes: a card with the diff and Apply / Reject
+    Settings.get().approve_agent_edits = True
+    with open(edited, "w") as f:
+        f.write("one\ntwo\nthree\n")
+    cards = lambda: [w for w in widgets(chat.messages) if isinstance(w, EditRow)]
+    chat.send(f"edit: {edited}|two|2")
+    check("edit_file shows a card with the file's name and the size of the change",
+          wait_for(lambda: cards() and cards()[0].proposed) and cards()[0].title.get_label() == "Edit edit-me.py"
+          and cards()[0].size.get_label() == "+1 \u22121",
+          f"{[(c.title.get_label(), c.size.get_label()) for c in cards()]}")
+    diff_text = cards()[0].diff.label.get_text() if cards() else ""
+    check("…the diff with the lines around the change",
+          "-two" in diff_text and "+2" in diff_text and " one" in diff_text, repr(diff_text))
+    check("…and Apply / Reject while it waits", wait_for(lambda: cards()[0].buttons.get_visible())
+          and win.approval.pending and win.approval.kind == "edit")
+    cards()[0].apply_button.emit("clicked")
+    check("Apply in the chat writes the file",
+          wait_for(lambda: not cards()[0].running) and open(edited).read() == "one\n2\nthree\n"
+          and not cards()[0].buttons.get_visible() and cards()[0].icon.has_css_class("success"),
+          open(edited).read())
+    wait_for(lambda: not chat.process.busy)
+    chat.send(f"edit: {edited}|three|3")
+    wait_for(lambda: len(cards()) == 2 and cards()[1].buttons.get_visible())
+    cards()[1].reject_button.emit("clicked")
+    check("Reject leaves the file and marks the card",
+          wait_for(lambda: cards()[1].status.has_css_class("error")) and "rejected" in cards()[1].status.get_label()
+          and open(edited).read() == "one\n2\nthree\n", cards()[1].status.get_label())
+    wait_for(lambda: not chat.process.busy)
+    chat.send("native-edit: /tmp/elsewhere.py")
+    check("agy's own edits show their diff too, without buttons, and say so",
+          wait_for(lambda: len(cards()) == 3 and not cards()[2].running) and cards()[2].approval is None
+          and "+new line" in cards()[2].diff.label.get_text() and "without asking" in cards()[2].status.get_label(),
+          f"{[c.status.get_label() for c in cards()]}")
+    Settings.get().approve_agent_edits = False
     wait_for(lambda: not chat.process.busy)
 
     first_id = chat.process.conversation_id

@@ -4,7 +4,10 @@ Fed by AgentProcess (chat.py). Each step of agy's stream is one row, keyed
 by its step index, and updated as more events for it arrive: the agent's
 text grows with each delta, a tool call gets its output when it is done.
 run_command is a collapsible block with the command, its output and exit
-code, and Run / Don't Run while it waits for approval (approval.py).
+code, and Run / Don't Run while it waits for approval (approval.py). A
+change to a file is a card with its diff: edit_file / write_file with
+Apply / Reject while it waits, agy's own file tools as a record of what
+they wrote (edits.py, diff_view.py).
 
 Animations follow the preset (animations.py): new rows fade in rising from
 below, the agent's text fades in piece by piece as it streams, command
@@ -20,7 +23,8 @@ import re
 
 from gi.repository import Gdk, GLib, Gtk, Pango
 
-from aiterm import animations
+from aiterm import animations, edits
+from aiterm.diff_view import DiffView, summary
 
 # Tools of agy's own, shown as one quiet line: name -> (verb, parameter to show)
 TOOL_LABELS = {
@@ -36,6 +40,8 @@ TOOL_LABELS = {
     "search_web": ("Searched the web for", "query"),
 }
 TERMINAL_SERVER = "aiterm_terminal"
+EDIT_TOOLS = ("edit_file", "write_file")
+OPEN_LINES = 30  # a diff up to this long shows open; a longer one opens on a click
 OUTPUT_LINES = 400  # the rest is in the user's terminal
 HIDDEN = object()  # a step not shown (see is_internal)
 
@@ -135,7 +141,7 @@ class CommandRow(Gtk.Box):
                          lambda: self.remove_css_class("agent-link") or GLib.SOURCE_REMOVE)
 
     def _sync_approval(self):
-        waiting = self.approval.pending
+        waiting = self.approval.pending and self.approval.kind == "command"
         self.buttons.set_visible(waiting)
         self.status.set_visible(waiting)
         self.status.set_label("Waiting for you to run it in your terminal")
@@ -167,6 +173,107 @@ class CommandRow(Gtk.Box):
             self.status.set_label(f"Exit code {exit_code}" if exit_code else output.split("\n")[0])
             self.status.remove_css_class("dim-label")
             self.status.add_css_class("error")
+            self.status.set_visible(True)
+        else:
+            self.status.set_visible(False)
+
+
+class EditRow(Gtk.Box):
+    """A change to a file: its name, the size of the change and the diff,
+    with Apply / Reject while it waits for the user. `approval` is None for
+    agy's own file tools, which write without asking."""
+
+    def __init__(self, path, diff, approval=None, force_animations=False):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.add_css_class("card")
+        self.add_css_class("edit-card")
+        self.path = path
+        self.approval = approval
+        self.force_animations = force_animations
+        self.running = True
+        self.proposed = False  # the app has the real diff (with context) from ProposeEdit
+        self.spinner = Gtk.Spinner(spinning=True)
+        self.icon = Gtk.Image(visible=False)
+        self.title = _label(css=("monospace",), hexpand=True, selectable=False, wrap=False,
+                            ellipsize=Pango.EllipsizeMode.START)
+        self.size = _label(css=("caption", "dim-label"), selectable=False, wrap=False)
+        header = Gtk.Box(spacing=8)
+        for widget in (self.spinner, self.icon, self.title, self.size):
+            header.append(widget)
+        self.expander = Gtk.Expander(label_widget=header, margin_start=8, margin_end=8, margin_top=6, margin_bottom=6)
+        self.diff = DiffView(margin_start=8, margin_end=8, margin_bottom=4)
+        self.revealer = Gtk.Revealer(child=self.diff, transition_type=Gtk.RevealerTransitionType.SLIDE_DOWN)
+        self.expander.connect("notify::expanded", lambda *_: self._on_expanded())
+        self.append(self.expander)
+        self.append(self.revealer)
+        self.status = _label(css=("caption", "dim-label"), margin_start=8, margin_end=8, visible=False)
+        self.append(self.status)
+        self.buttons = Gtk.Box(spacing=6, halign=Gtk.Align.END, margin_end=8, margin_bottom=8, visible=False)
+        self.reject_button = Gtk.Button(label="Reject")
+        self.reject_button.connect("clicked", lambda *_: self._answer(False))
+        self.apply_button = Gtk.Button(label="Apply")
+        self.apply_button.add_css_class("suggested-action")
+        self.apply_button.connect("clicked", lambda *_: self._answer(True))
+        self.buttons.append(self.reject_button)
+        self.buttons.append(self.apply_button)
+        self.append(self.buttons)
+        self.set_diff(path, diff)
+        self._handler = None
+        if approval is not None:
+            self._handler = approval.connect("notify::reveal-child", lambda *_: self._sync_approval())
+            self._sync_approval()
+
+    def set_diff(self, path, diff, proposed=False):
+        self.path = path or self.path
+        self.proposed = self.proposed or proposed
+        new = bool(diff) and diff[0] == "--- /dev/null"
+        self.title.set_label(f"{'Create' if new else 'Edit'} {os.path.basename(self.path)}")
+        self.set_tooltip_text(self.path)
+        self.size.set_label(summary(diff) if diff else "")
+        self.diff.set_diff(diff)
+        self.expander.set_expanded(bool(diff) and (self.waiting or len(diff) <= OPEN_LINES))
+
+    @property
+    def waiting(self):
+        a = self.approval
+        return bool(a and self.running and a.pending and a.kind == "edit" and a.path == self.path)
+
+    def _on_expanded(self):
+        self.revealer.set_transition_duration(animations.duration(self, "tool_card", self.force_animations))
+        self.revealer.set_reveal_child(self.expander.get_expanded())
+
+    def _answer(self, apply):
+        if self.waiting:
+            self.approval.answer(apply)
+
+    def _sync_approval(self):
+        waiting = self.waiting
+        self.buttons.set_visible(waiting)
+        if waiting:
+            self.expander.set_expanded(True)
+        if self.running:
+            self.status.set_label("Waiting for you to apply it")
+            self.status.set_visible(waiting)
+
+    def finish(self, output, failed):
+        if self._handler:
+            self.approval.disconnect(self._handler)
+            self._handler = None
+        self.running = False
+        self.buttons.set_visible(False)
+        self.spinner.set_visible(False)
+        self.icon.set_from_icon_name("dialog-error-symbolic" if failed else "object-select-symbolic")
+        self.icon.add_css_class("error" if failed else "success")
+        self.icon.set_visible(True)
+        if failed:
+            # The first sentence: "The user rejected the change to …", or why it failed
+            self.status.set_label(output.split(". ")[0].rstrip(".") + "." if output else "Not changed.")
+            self.status.remove_css_class("dim-label")
+            self.status.add_css_class("error")
+            self.status.set_visible(True)
+            self.expander.set_expanded(False)
+        elif self.approval is None:
+            self.status.set_label("Written by agy's own file tool, without asking")
             self.status.set_visible(True)
         else:
             self.status.set_visible(False)
@@ -206,6 +313,19 @@ def tool_text(name, info):
     if isinstance(value, str) and value.startswith("/"):
         value = os.path.basename(value.rstrip("/")) or value  # the full path is in the tooltip
     return f"{verb} {value}" if value else verb
+
+
+def planned_edit(tool, arguments):
+    """(path, diff) for an edit_file / write_file call, from its arguments
+    alone, until the app sends the real one (ProposeEdit)."""
+    path = arguments.get("path") if isinstance(arguments.get("path"), str) else "file"
+    if tool == "write_file":
+        content = arguments.get("content")
+        return path, edits.diff(None, content, path) if isinstance(content, str) else []
+    old, new = arguments.get("old_text"), arguments.get("new_text")
+    if not (isinstance(old, str) and isinstance(new, str)):
+        return path, []
+    return path, ["@@" if line.startswith("@@") else line for line in edits.diff(old, new, path)]
 
 
 def is_internal(name, info):
@@ -267,6 +387,7 @@ class ChatView(Gtk.Box):
         self.steps = {}  # step index -> (row, accumulated text)
         self.fades = {}  # step index -> StreamFade
         self._linked = None  # (command, time) the agent ran before its block showed
+        self._proposed = None  # (path, diff, time) a change proposed before its card showed
         process.connect("event", lambda _p, event: self.on_event(event))
         process.connect("exited", lambda _p, stopped, stderr: self.on_exited(stopped, stderr))
 
@@ -278,6 +399,9 @@ class ChatView(Gtk.Box):
         self.messages.append(self.placeholder)
         self.scroller = Gtk.ScrolledWindow(child=self.messages, vexpand=True,
                                            hscrollbar_policy=Gtk.PolicyType.NEVER)
+        # Rows get their natural height, not their minimum: a diff's own
+        # scroller would otherwise shrink to a few lines
+        self.scroller.get_child().set_vscroll_policy(Gtk.ScrollablePolicy.NATURAL)
         # Keep the newest message in sight while it grows, unless the user
         # scrolled up: then a button offers the new messages
         self._stick = True
@@ -434,9 +558,12 @@ class ChatView(Gtk.Box):
 
     def _follow_agent_commands(self, follow):
         if follow and self._ran_handler is None:
-            self._ran_handler = self.approval.connect("agent-ran", lambda _a, command: self._on_agent_ran(command))
+            self._ran_handler = (
+                self.approval.connect("agent-ran", lambda _a, command: self._on_agent_ran(command)),
+                self.approval.connect("edit-proposed", lambda _a, path, diff: self._on_edit_proposed(path, diff)))
         elif not follow and self._ran_handler is not None:
-            self.approval.disconnect(self._ran_handler)
+            for handler in self._ran_handler:
+                self.approval.disconnect(handler)
             self._ran_handler = None
 
     def _on_agent_ran(self, command):
@@ -447,6 +574,17 @@ class ChatView(Gtk.Box):
                 row.light_up()
                 return
         self._linked = (command, GLib.get_monotonic_time())
+
+    def _on_edit_proposed(self, path, diff):
+        """The app got the agent's change (ProposeEdit): its card shows the
+        real diff, with the lines around the change, now or as it shows."""
+        diff = diff.split("\n") if diff else []
+        for row, _ in reversed(list(self.steps.values())):
+            if isinstance(row, EditRow) and row.approval is not None and row.running and not row.proposed:
+                row.set_diff(path, diff, proposed=True)
+                row._sync_approval()
+                return
+        self._proposed = (path, diff, GLib.get_monotonic_time())
 
     # Events from agy
 
@@ -485,6 +623,15 @@ class ChatView(Gtk.Box):
                     linked, self._linked = self._linked, None
                     if linked and linked[0] == command and GLib.get_monotonic_time() - linked[1] < 3_000_000:
                         GLib.idle_add(lambda: row.light_up() and False)
+                elif params.get("ServerName") == TERMINAL_SERVER and params.get("ToolName") in EDIT_TOOLS:
+                    row = EditRow(*planned_edit(params.get("ToolName"), params.get("Arguments") or {}),
+                                  self.approval, self.force_animations)
+                    proposed, self._proposed = self._proposed, None
+                    if proposed and GLib.get_monotonic_time() - proposed[2] < 3_000_000:
+                        row.set_diff(proposed[0], proposed[1], proposed=True)
+                        row._sync_approval()
+                elif (native := edits.diff_native(name, params)) is not None:
+                    row = EditRow(*native, force_animations=self.force_animations)
                 elif is_internal(name, info):
                     self.steps[index] = (None, HIDDEN)  # nothing to show
                     return
@@ -518,7 +665,7 @@ class ChatView(Gtk.Box):
             self.steps.clear()
             return
         for row, _ in self.steps.values():
-            if isinstance(row, (CommandRow, ToolRow)) and row.running:
+            if isinstance(row, (CommandRow, EditRow, ToolRow)) and row.running:
                 row.finish("Stopped", True)
         self.steps.clear()
         if stopped:

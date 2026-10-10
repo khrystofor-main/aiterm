@@ -40,6 +40,8 @@ class Settings(GObject.Object):
     animations_hint_shown = GObject.Property(type=bool, default=False)
     # The agent's commands wait for Run in the approval bar (approval.py)
     approve_agent_commands = GObject.Property(type=bool, default=True)
+    # The agent's file changes wait for Apply (edits.py, approval.py)
+    approve_agent_edits = GObject.Property(type=bool, default=True)
     # agy's own interface in a terminal, or the app's chat (agent_panel.py)
     agent_view = GObject.Property(type=str, default="terminal")
     # Not in the dialog: the size of the last window closed, for the next one

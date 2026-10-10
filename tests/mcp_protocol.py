@@ -8,6 +8,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SERVER = os.path.join(ROOT, "bin", "aiterm-mcp")
@@ -46,8 +47,9 @@ check("…offers tools and says what they are for",
       "tools" in init.get("capabilities", {}) and "run_command" in init.get("instructions", ""), str(init))
 check("notifications get no reply", set(replies) == {1, 2, 3}, str(replies))
 tools = {t["name"]: t for t in replies.get(2, {}).get("result", {}).get("tools", [])}
-check("tools/list lists the terminal tools",
-      sorted(tools) == ["get_cwd", "read_terminal", "run_command", "wait_for_command"], str(sorted(tools)))
+check("tools/list lists the terminal and file tools",
+      sorted(tools) == ["edit_file", "get_cwd", "read_terminal", "run_command", "wait_for_command", "write_file"],
+      str(sorted(tools)))
 check("…each with a description and an object schema",
       all(t["description"] and t["inputSchema"]["type"] == "object" for t in tools.values()))
 check("run_command requires a command", tools.get("run_command", {}).get("inputSchema", {}).get("required")
@@ -81,5 +83,29 @@ check("…a number given as a string", "`commands` must be" in (text(6) or ""), 
 check("…and an app that does not answer", "Cannot reach the Aiterm window" in (text(7) or ""), str(replies[7]))
 check("arguments that are not an object are invalid params", replies[8]["error"]["code"] == -32602,
       str(replies[8]))
+
+# The file tools plan the change themselves: errors the model can fix come
+# before the app is asked anything
+folder = tempfile.mkdtemp(prefix="aiterm-mcp-")
+target = os.path.join(folder, "a.txt")
+with open(target, "w") as f:
+    f.write("one\ntwo\n")
+replies, _ = session(
+    call(1, "edit_file", {"old_text": "a", "new_text": "b"}),
+    call(2, "edit_file", {"path": target, "old_text": "three", "new_text": "3"}),
+    call(3, "edit_file", {"path": target, "old_text": "one", "new_text": "1", "replace_all": "yes"}),
+    call(4, "write_file", {"path": target, "content": "one\ntwo\n"}),
+    call(5, "edit_file", {"path": target, "old_text": "one", "new_text": "1"}),
+    call(6, "write_file", {"path": target}), **INSIDE)
+check("edit_file needs a path", "`path` is required" in (text(1) or ""), str(replies[1]))
+check("…and text that is in the file", "is not in" in (text(2) or ""), str(replies[2]))
+check("…and a real true or false", "`replace_all` must be" in (text(3) or ""), str(replies[3]))
+check("writing what the file already has changes nothing, and asks nobody",
+      not replies[4]["result"]["isError"] and replies[4]["result"]["structuredContent"]["status"] == "unchanged",
+      str(replies[4]))
+check("a good edit goes to the app for approval", "Cannot reach the Aiterm window" in (text(5) or ""),
+      str(replies[5]))
+check("write_file needs content", "`content` is required" in (text(6) or ""), str(replies[6]))
+check("…and nothing was written meanwhile", open(target).read() == "one\ntwo\n")
 
 sys.exit(0 if all(results) else 1)
