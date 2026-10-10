@@ -78,18 +78,17 @@ def run_in_pty(args, wait=5, linger=1.5, env=None):
     return proc.poll(), took, out.decode(errors="replace"), proc
 
 
-def bus_call(method, arg):
-    out = subprocess.run(["gdbus", "call", "--session", "--dest", "org.freedesktop.DBus",
-                          "--object-path", "/org/freedesktop/DBus",
-                          "--method", f"org.freedesktop.DBus.{method}", arg],
-                         capture_output=True, text=True)
-    return out.stdout.strip() if out.returncode == 0 else None
-
-
 def app_pid():
     """The pid of the process that owns APP_ID on the session bus, or None."""
-    out = bus_call("GetConnectionUnixProcessID", APP_ID)
-    return int(out.split()[-1].strip(",)")) if out else None  # "(uint32 1234,)"
+    from gi.repository import Gio, GLib
+    try:
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION)
+        reply = bus.call_sync("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
+                              "GetConnectionUnixProcessID", GLib.Variant("(s)", (APP_ID,)),
+                              GLib.VariantType("(u)"), Gio.DBusCallFlags.NONE, 5000)
+    except GLib.Error:  # nobody owns it
+        return None
+    return reply.unpack()[0]
 
 
 def children(pid):
