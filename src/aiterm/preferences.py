@@ -14,14 +14,15 @@ BOTH_WAYS = GObject.BindingFlags.BIDIRECTIONAL | GObject.BindingFlags.SYNC_CREAT
 CURSOR_LABELS = {"block": "Block", "ibeam": "I-Beam", "underline": "Underline"}
 VIEW_LABELS = {"terminal": "Terminal", "chat": "Chat"}
 CONTENT_WIDTH = 900
+NARROW_WIDTH = 600  # below it the header's page switcher shows icons over labels
 
 
 class PreferencesDialog(Adw.PreferencesDialog):
     def __init__(self):
-        # Wide enough for the six page names in the header: narrower, the
-        # page switcher moves to a bar at the bottom (so it does in windows
-        # under about 1050 px, which leave the header too little room)
-        super().__init__(title="Preferences", content_width=CONTENT_WIDTH)
+        # Wide enough for the six page names with their labels side by side
+        super().__init__(title="Preferences", content_width=CONTENT_WIDTH,
+                         width_request=360, height_request=150)  # as the dialog's own minimum
+        self._keep_switcher_in_header()
         self.settings = settings = Settings.get()
 
         # Appearance
@@ -133,6 +134,24 @@ class PreferencesDialog(Adw.PreferencesDialog):
 
         self.feedback_page = FeedbackPage()
         self.add(self.feedback_page)
+
+    def _keep_switcher_in_header(self):
+        """The page switcher stays in the header at every width.
+
+        Adw.PreferencesDialog has its own breakpoint (max-width: 600px) that
+        reveals a switcher bar at the bottom and puts the title in the header
+        instead. It is removed here; below the same width the header switcher
+        turns narrow (icons over short labels), which fits down to the
+        dialog's minimum width of 360 px."""
+        builtin = self.get_template_child(Adw.PreferencesDialog, "breakpoint")
+        bin_ = self.get_template_child(Adw.PreferencesDialog, "breakpoint_bin")
+        if builtin and bin_:
+            bin_.remove_breakpoint(builtin)
+        self.header_switcher = self.get_template_child(Adw.PreferencesDialog, "view_switcher")
+        if self.header_switcher:
+            narrow = Adw.Breakpoint.new(Adw.BreakpointCondition.parse(f"max-width: {NARROW_WIDTH}px"))
+            narrow.add_setter(self.header_switcher, "policy", Adw.ViewSwitcherPolicy.NARROW)
+            self.add_breakpoint(narrow)
 
 
 def combo_row(title, values, settings, key, labels=None):

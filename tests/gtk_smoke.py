@@ -122,6 +122,28 @@ def descendants(widget):
         child = child.get_next_sibling()
 
 
+def narrow_preferences(app, width):
+    """Preferences in a window `width` px wide keep their page switcher in
+    the header, narrow (icons over labels) when the labels do not fit."""
+    win = Adw.ApplicationWindow(application=app, default_width=width, default_height=600)
+    win.present()
+    dialog = PreferencesDialog()
+    dialog.present(win)
+    switcher = dialog.header_switcher
+    bars = [w for w in descendants(dialog) if isinstance(w, Adw.ViewSwitcherBar)]
+    narrow = Adw.ViewSwitcherPolicy.NARROW if width < 600 else Adw.ViewSwitcherPolicy.WIDE
+    on_top = wait_for(lambda: switcher.get_mapped() and 0 < dialog.get_width() <= max(width, 360)
+                      and switcher.get_width() <= dialog.get_width() and switcher.get_policy() == narrow, 3)
+    check(f"at {width} px the page switcher stays in the header", on_top,
+          f"dialog {dialog.get_width()}, switcher mapped {switcher.get_mapped()} width {switcher.get_width()}")
+    check(f"at {width} px no page switcher bar at the bottom", not any(b.get_reveal() for b in bars),
+          str([b.get_reveal() for b in bars]))
+    check(f"at {width} px the header switcher is {narrow.value_nick}", switcher.get_policy() == narrow,
+          str(switcher.get_policy()))
+    dialog.force_close()
+    win.destroy()
+
+
 def widgets(box):
     child, out = box.get_first_child(), []
     while child:
@@ -855,6 +877,8 @@ def steps(app):
         bars = [w for w in descendants(dialog) if isinstance(w, Adw.ViewSwitcherBar)]
         check("the page switcher is in the header, not in a bar at the bottom",
               wait_for(lambda: bars and not any(b.get_reveal() for b in bars), 3), str([b.get_reveal() for b in bars]))
+        for width in (700, 360, 300):  # 300: below the dialog's minimum
+            narrow_preferences(app, width)
         dialog.palette_row.set_selected(list(PALETTES).index("Tango"))
         check("the dialog changes the palette", settings.palette == "Tango")
         dialog.system_font_row.set_active(True)
