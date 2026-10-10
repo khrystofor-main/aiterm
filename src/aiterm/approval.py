@@ -11,7 +11,9 @@ in the app, not in the agent's own permission settings: whatever the agent
 is told or configured to do, nothing is typed until the user clicks Run.
 ProposeEdit calls ask_edit() the same way, and writes nothing before Apply.
 The chat shows the same request in its own cards, with buttons that answer
-here (chat_view.py).
+here (chat_view.py). A card on screen claims the request (show_in), and the
+bar stays hidden while it does, so the user is asked in one place: the
+chat, or the bar when the chat is not showing (Terminal view, panel closed).
 """
 
 import os
@@ -34,6 +36,9 @@ class ApprovalBar(Gtk.Revealer):
         # The app wrote it: the path, the text before (and whether the file
         # existed) and after, so the chat's card can undo it
         "edit-applied": (GObject.SignalFlags.RUN_FIRST, None, (str, str, bool, str)),
+        # A request started or was answered: the chat's cards show or hide
+        # their buttons
+        "changed": (GObject.SignalFlags.RUN_FIRST, None, ()),
     }
 
     def __init__(self):
@@ -41,6 +46,8 @@ class ApprovalBar(Gtk.Revealer):
         self._callback = None
         self.kind = None  # what waits: "command" or "edit"
         self.path = None  # the file, for an edit
+        self._shown = False  # asked, or a preview: the bar shows unless a card does
+        self._cards = {}  # chat cards showing the request: widget -> map/unmap handlers
 
         self.command = Gtk.Label(
             xalign=0, hexpand=True, selectable=True, wrap=True,
@@ -120,7 +127,26 @@ class ApprovalBar(Gtk.Revealer):
         # Run pulses while the agent waits (CSS below, timed by the preset)
         if animations.Animations.get().effect("approval"):
             self.run_button.add_css_class("approval-pulse")
-        self.set_reveal_child(True)
+        self._shown = True
+        self.emit("changed")  # the chat's cards claim it now (show_in)
+        self._update()
+
+    def show_in(self, card, showing):
+        """A chat card shows (or stopped showing) this request with its own
+        buttons: while one is on screen, the bar hides."""
+        if showing and card not in self._cards:
+            self._cards[card] = [card.connect(signal, lambda *_: self._update()) for signal in ("map", "unmap")]
+        elif not showing and card in self._cards:
+            for handler in self._cards.pop(card):
+                card.disconnect(handler)
+        self._update()
+
+    @property
+    def shown_in_chat(self):
+        return any(card.get_mapped() for card in self._cards)
+
+    def _update(self):
+        self.set_reveal_child(self._shown and not self.shown_in_chat)
 
     def preview(self, command, seconds=2):
         """Shows the bar for a moment, with nobody waiting (Preferences → Animations)."""
@@ -134,7 +160,11 @@ class ApprovalBar(Gtk.Revealer):
         self.kind = self.path = None
         self.run_button.remove_css_class("approval-pulse")
         self.set_transition_duration(animations.duration(self, "approval"))
+        self._shown = False
+        for card in list(self._cards):
+            self.show_in(card, False)
         self.set_reveal_child(False)
+        self.emit("changed")
         if callback:
             callback(run)
 

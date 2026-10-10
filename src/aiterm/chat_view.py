@@ -122,7 +122,7 @@ class CommandRow(Gtk.Box):
         self.buttons.append(self.skip_button)
         self.buttons.append(self.run_button)
         self.append(self.buttons)
-        self._handler = approval.connect("notify::reveal-child", lambda *_: self._sync_approval())
+        self._handler = approval.connect("changed", lambda *_: self._sync_approval())
         self._sync_approval()
 
     def _on_expanded(self):
@@ -141,7 +141,8 @@ class CommandRow(Gtk.Box):
                          lambda: self.remove_css_class("agent-link") or GLib.SOURCE_REMOVE)
 
     def _sync_approval(self):
-        waiting = self.approval.pending and self.approval.kind == "command"
+        waiting = self.approval.pending and self.approval.kind == "command" and self.running
+        self.approval.show_in(self, waiting)
         self.buttons.set_visible(waiting)
         self.status.set_visible(waiting)
         self.status.set_label("Waiting for you to run it in your terminal")
@@ -151,6 +152,7 @@ class CommandRow(Gtk.Box):
         if self._handler:
             self.approval.disconnect(self._handler)
             self._handler = None
+            self.approval.show_in(self, False)
         self.buttons.set_visible(False)
         self.running = False
         self.spinner.set_visible(False)
@@ -225,7 +227,7 @@ class EditRow(Gtk.Box):
         self.set_diff(path, diff)
         self._handler = None
         if approval is not None:
-            self._handler = approval.connect("notify::reveal-child", lambda *_: self._sync_approval())
+            self._handler = approval.connect("changed", lambda *_: self._sync_approval())
             self._sync_approval()
 
     def set_diff(self, path, diff, proposed=False):
@@ -253,6 +255,7 @@ class EditRow(Gtk.Box):
 
     def _sync_approval(self):
         waiting = self.waiting
+        self.approval.show_in(self, waiting)
         self.buttons.set_visible(waiting)
         if waiting:
             self.expander.set_expanded(True)
@@ -264,6 +267,7 @@ class EditRow(Gtk.Box):
         if self._handler:
             self.approval.disconnect(self._handler)
             self._handler = None
+            self.approval.show_in(self, False)
         self.running = False
         self.buttons.set_visible(False)
         self.spinner.set_visible(False)
