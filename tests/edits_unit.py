@@ -119,6 +119,15 @@ before, after = edits.plan_edit(crlf, "b", "c")
 edits.write(crlf, before, after)
 check("line endings stay as they were", open(crlf, "rb").read() == b"a\r\nc\r\n", repr(open(crlf, "rb").read()))
 
+# Undo: the change applied, then taken back
+edits.undo(crlf, before, after)
+check("undo puts the text back", open(crlf, "rb").read() == b"a\r\nb\r\n", repr(open(crlf, "rb").read()))
+message = error(edits.undo, crlf, before, after)
+check("undoing a file that changed since is refused", message and "not undone" in message, message)
+check("…and the file is left as it was", open(crlf, "rb").read() == b"a\r\nb\r\n")
+edits.undo(new, None, "hello\n")
+check("undoing a new file removes it", not os.path.exists(new))
+
 # agy's own file tools, from their parameters
 native = edits.diff_native("replace_file_content", {
     "TargetFile": "/p/app.py", "TargetContent": "a\nb", "ReplacementContent": "a\nc", "StartLine": 7})

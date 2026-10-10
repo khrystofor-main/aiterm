@@ -192,6 +192,7 @@ class EditRow(Gtk.Box):
         self.force_animations = force_animations
         self.running = True
         self.proposed = False  # the app has the real diff (with context) from ProposeEdit
+        self.change = None  # (before, after) once the app wrote it, for Undo; before None: a new file
         self.spinner = Gtk.Spinner(spinning=True)
         self.icon = Gtk.Image(visible=False)
         self.title = _label(css=("monospace",), hexpand=True, selectable=False, wrap=False,
@@ -214,8 +215,12 @@ class EditRow(Gtk.Box):
         self.apply_button = Gtk.Button(label="Apply")
         self.apply_button.add_css_class("suggested-action")
         self.apply_button.connect("clicked", lambda *_: self._answer(True))
+        self.undo_button = Gtk.Button(label="Undo", visible=False,
+                                      tooltip_text="Put the file back as it was before this change")
+        self.undo_button.connect("clicked", lambda *_: self._undo())
         self.buttons.append(self.reject_button)
         self.buttons.append(self.apply_button)
+        self.buttons.append(self.undo_button)
         self.append(self.buttons)
         self.set_diff(path, diff)
         self._handler = None
@@ -277,6 +282,28 @@ class EditRow(Gtk.Box):
             self.status.set_visible(True)
         else:
             self.status.set_visible(False)
+            if self.change is not None:
+                self.reject_button.set_visible(False)
+                self.apply_button.set_visible(False)
+                self.undo_button.set_visible(True)
+                self.buttons.set_visible(True)
+
+    def _undo(self):
+        """Puts the file back, if nothing changed it since (edits.undo).
+        The agent is not told: it reads the file again before its next edit."""
+        try:
+            edits.undo(self.path, *self.change)
+        except edits.EditError as error:
+            self.status.set_label(str(error))
+            self.status.remove_css_class("dim-label")
+            self.status.add_css_class("error")
+        else:
+            self.buttons.set_visible(False)
+            self.icon.remove_css_class("success")
+            self.icon.set_from_icon_name("edit-undo-symbolic")
+            self.status.set_label("Undone: the file is back as it was")
+            self.expander.set_expanded(False)
+        self.status.set_visible(True)
 
 
 class ToolRow(Gtk.Box):
@@ -388,6 +415,7 @@ class ChatView(Gtk.Box):
         self.fades = {}  # step index -> StreamFade
         self._linked = None  # (command, time) the agent ran before its block showed
         self._proposed = None  # (path, diff, time) a change proposed before its card showed
+        self._applied = None  # (path, (before, after), time) a change written before its card showed
         process.connect("event", lambda _p, event: self.on_event(event))
         process.connect("exited", lambda _p, stopped, stderr: self.on_exited(stopped, stderr))
 
@@ -560,7 +588,9 @@ class ChatView(Gtk.Box):
         if follow and self._ran_handler is None:
             self._ran_handler = (
                 self.approval.connect("agent-ran", lambda _a, command: self._on_agent_ran(command)),
-                self.approval.connect("edit-proposed", lambda _a, path, diff: self._on_edit_proposed(path, diff)))
+                self.approval.connect("edit-proposed", lambda _a, path, diff: self._on_edit_proposed(path, diff)),
+                self.approval.connect("edit-applied", lambda _a, path, before, existed, after:
+                                      self._on_edit_applied(path, before if existed else None, after)))
         elif not follow and self._ran_handler is not None:
             for handler in self._ran_handler:
                 self.approval.disconnect(handler)
@@ -585,6 +615,15 @@ class ChatView(Gtk.Box):
                 row._sync_approval()
                 return
         self._proposed = (path, diff, GLib.get_monotonic_time())
+
+    def _on_edit_applied(self, path, before, after):
+        """The app wrote the agent's change: its card can undo it."""
+        for row, _ in reversed(list(self.steps.values())):
+            if (isinstance(row, EditRow) and row.approval is not None and row.running and row.proposed
+                    and row.path == path and row.change is None):
+                row.change = (before, after)
+                return
+        self._applied = (path, (before, after), GLib.get_monotonic_time())
 
     # Events from agy
 
@@ -630,6 +669,9 @@ class ChatView(Gtk.Box):
                     if proposed and GLib.get_monotonic_time() - proposed[2] < 3_000_000:
                         row.set_diff(proposed[0], proposed[1], proposed=True)
                         row._sync_approval()
+                    applied, self._applied = self._applied, None
+                    if applied and applied[0] == row.path and GLib.get_monotonic_time() - applied[2] < 3_000_000:
+                        row.change = applied[1]
                 elif (native := edits.diff_native(name, params)) is not None:
                     row = EditRow(*native, force_animations=self.force_animations)
                 elif is_internal(name, info):

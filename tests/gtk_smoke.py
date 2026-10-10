@@ -951,7 +951,7 @@ def steps(app):
     cards()[0].apply_button.emit("clicked")
     check("Apply in the chat writes the file",
           wait_for(lambda: not cards()[0].running) and open(edited).read() == "one\n2\nthree\n"
-          and not cards()[0].buttons.get_visible() and cards()[0].icon.has_css_class("success"),
+          and not cards()[0].apply_button.get_visible() and cards()[0].icon.has_css_class("success"),
           open(edited).read())
     wait_for(lambda: not chat.process.busy)
     chat.send(f"edit: {edited}|three|3")
@@ -960,6 +960,13 @@ def steps(app):
     check("Reject leaves the file and marks the card",
           wait_for(lambda: cards()[1].status.has_css_class("error")) and "rejected" in cards()[1].status.get_label()
           and open(edited).read() == "one\n2\nthree\n", cards()[1].status.get_label())
+    check("an applied change offers Undo, a rejected one does not",
+          cards()[0].undo_button.get_visible() and cards()[0].buttons.get_visible()
+          and not cards()[1].buttons.get_visible(), f"{[c.buttons.get_visible() for c in cards()]}")
+    cards()[0].undo_button.emit("clicked")
+    check("…which puts the file back and says so",
+          open(edited).read() == "one\ntwo\nthree\n" and not cards()[0].buttons.get_visible()
+          and "Undone" in cards()[0].status.get_label(), open(edited).read())
     wait_for(lambda: not chat.process.busy)
     chat.send("native-edit: /tmp/elsewhere.py")
     check("agy's own edits show their diff too, without buttons, and say so",
