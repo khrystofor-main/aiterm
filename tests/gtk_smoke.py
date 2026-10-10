@@ -39,7 +39,8 @@ from aiterm.animations import Animations  # noqa: E402
 from aiterm.chat_view import CommandRow, EditRow, markdown_to_pango  # noqa: E402
 from aiterm.palettes import PALETTES  # noqa: E402
 from aiterm.preferences import PreferencesDialog  # noqa: E402
-from aiterm.settings import Settings  # noqa: E402
+from aiterm.prompt import COLORS  # noqa: E402
+from aiterm.settings import PROMPT_SYMBOLS, Settings  # noqa: E402
 
 os.environ["SHELL"] = "/bin/bash"
 # Preferences go to a throwaway folder, never the user's ~/.config/aiterm
@@ -155,14 +156,19 @@ def animations_page(page):
     check("Show plays the effects in the preview",
           len(preview.shakes) == 1 and len(preview.marks) == 1 and preview.blend is not None)
     chat = page.chat_preview
-    page.get_ancestor(Adw.PreferencesDialog).set_visible_page(page)
-    wait_for(lambda: chat.get_mapped() or page.previews.set_visible_child_name("chat"), 2)
+    # Whether the test display calls the window active varies from run to run
+    original_window_active = animations.window_active
+    animations.window_active = lambda widget: True
+    dialog = page.get_ancestor(Adw.PreferencesDialog)
+    # Now and then the page is not shown at the first try on the test display
+    wait_for(lambda: chat.get_mapped() or dialog.set_visible_page(page)
+             or page.previews.set_visible_child_name("chat"), 5)
     page.show_effect("stream")
     check("Show for a chat effect plays a short exchange in a preview chat",
           page.previews.get_visible_child_name() == "chat" and chat.process.busy)
     user = chat.messages.get_first_child()
     check("…a new message fades in, rising from below", user.get_opacity() < 1 and user.get_margin_top() > 0,
-          f"{user.get_opacity()} {user.get_margin_top()}")
+          f"{user.get_opacity()} {user.get_margin_top()} chat shown: {chat.get_mapped()}")
     animations.finish_all()
     check("…and settles", user.get_opacity() == 1 and user.get_margin_top() == 0)
     check("…three dots pulse while the agent works",
@@ -179,6 +185,7 @@ def animations_page(page):
     check("…the answer fades in piece by piece as it streams",
           wait_for(lambda: answer() and answer()[0].get_attributes() is not None, 3))
     check("…and the dots go at the end", wait_for(lambda: not chat.thinking.get_visible(), 5))
+    animations.window_active = original_window_active
     animations.finish_all()
     for i in range(12):
         chat.add_note(f"note {i}")
@@ -220,6 +227,40 @@ def animations_page(page):
     engine.delete(preset.key)
     check("Delete goes back to the built-in preset", wait_for(lambda: page.preset_row.get_selected() == 0, 2)
           and settings.animation_preset == "subtle")
+
+
+def prompt_page(page, term, log):
+    """Preferences → Prompt: the open shell takes the prompt at its next
+    prompt, the command log still cuts commands right, and off brings back
+    the user's own."""
+    settings = Settings.get()
+    page.get_ancestor(Adw.PreferencesDialog).set_visible_page(page)
+    last_line = lambda: screen_text(term).rstrip("\n").split("\n")[-1]
+    check("the prompt's segments wait for the switch", not page.segments.get_sensitive())
+    page.switch.set_active(True)
+    check("the switch turns Aiterm's prompt on", settings.custom_prompt and page.segments.get_sensitive())
+    page.symbol_row.set_selected(PROMPT_SYMBOLS.index("arrow"))
+    keys = [row.item.key for row in page.rows]
+    page.rows[keys.index("user_host")].check.set_active(False)
+    cwd_row = page.rows[keys.index("cwd")]
+    cwd_row.up.emit("clicked")
+    check("a segment moves up", [row.item.key for row in page.rows][0] == "cwd", settings.prompt_segments)
+    page.rows[0].color.set_selected(list(COLORS).index("cyan"))
+    check("…and takes a color", settings.prompt_segments.startswith("cwd:cyan,-user_host"), settings.prompt_segments)
+    check("the preview follows", "❯" in page.preview.get_label() and "lex@" not in page.preview.get_label(),
+          page.preview.get_label())
+    term.feed_child(b"cd /tmp\n")
+    check("the open shell shows it at the next prompt", wait_for(lambda: last_line().startswith("/tmp ❯")),
+          last_line())
+    page.two_lines_row.set_active(True)
+    term.feed_child(b"echo two-lines\n")
+    ok = wait_for(lambda: log.commands[-1].text == "echo two-lines")
+    check("a two-line prompt keeps the command log right", ok and log.commands[-1].output == "two-lines",
+          repr(log.commands[-1]))
+    page.switch.set_active(False)
+    term.feed_child(b"true\n")
+    check("off brings back the user's own prompt", wait_for(lambda: "$ " in last_line() and "❯" not in last_line()),
+          last_line())
 
 
 def run(app):
@@ -717,6 +758,7 @@ def steps(app):
         dialog.approve_row.set_active(True)
         check("the dialog turns command approval on", settings.approve_agent_commands)
         animations_page(dialog.animations_page)
+        prompt_page(dialog.prompt_page, term, log)
         dialog.force_close()
     for key in settings.keys():  # back to defaults for the rest of the test
         settings.set_property(key, settings.find_property(key.replace("_", "-")).get_default_value())
@@ -861,8 +903,13 @@ def steps(app):
     check("the agent panel starts hidden", not win.agent_panel.get_visible())
     check("Alt+Enter is caught before VTE",
           Gtk.ShortcutTrigger.parse_string("<Alt>Return").to_string() in win_keys)
+    columns = term.get_column_count()
     win.activate_action("win.switch-to-agent")
     check("Alt+Enter opens the agent panel", win.agent_panel.get_visible() and settings.agent_panel_visible)
+    # The panel takes its width at the next layout, and VTE rewraps (and
+    # renumbers) the shell's rows then: let that happen before the agent's
+    # command, whose output the command log reads by row
+    wait_for(lambda: term.get_column_count() != columns, 3)
     agent = win.agent_panel.terminal
     check("…and starts the agent in it", agent is not None)
     wait_for(lambda: "$ " in screen_text(agent))

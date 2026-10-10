@@ -7,6 +7,7 @@ import shlex
 
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango, Vte
 
+from aiterm import prompt
 from aiterm.commands import CommandLog
 from aiterm.effects import TerminalEffects
 from aiterm.palettes import PALETTES
@@ -119,7 +120,10 @@ class Terminal(Vte.Terminal):
         # The shell's process group, seen at its first prompt: not the
         # spawned pid when the shell runs under a wrapper (bwrap, toolbox)
         self._shell_group = None
-        self._spawn(cwd or GLib.get_home_dir(), argv or shell_command(), env or {})
+        env = dict(env or {})
+        if not argv:  # the user's shell: integration.bash reads Aiterm's prompt from here
+            env.setdefault("AITERM_PROMPT_FILE", prompt.prompt_file())
+        self._spawn(cwd or GLib.get_home_dir(), argv or shell_command(), env)
 
     def title(self):
         if hasattr(Vte, "TERMPROP_XTERM_TITLE"):

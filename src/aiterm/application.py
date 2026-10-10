@@ -9,10 +9,11 @@ gi.require_version("Vte", "3.91")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
 from aiterm import APP_ID, VERSION  # noqa: E402
-from aiterm import agent_panel, approval, chat_view, diff_view, terminal, window  # noqa: E402
+from aiterm import agent_panel, approval, chat_view, diff_view, prompt, prompt_page, terminal, window  # noqa: E402
 from aiterm.animations import Animations  # noqa: E402
 from aiterm.dbus_api import TerminalApi  # noqa: E402
 from aiterm.preferences import PreferencesDialog  # noqa: E402
+from aiterm.settings import Settings  # noqa: E402
 from aiterm.window import Window  # noqa: E402
 
 # Keeps text off the window edges
@@ -65,7 +66,7 @@ class Application(Adw.Application):
     def do_startup(self):
         Adw.Application.do_startup(self)
         css = Gtk.CssProvider()
-        css.load_from_string(CSS + agent_panel.CSS + approval.CSS + chat_view.CSS + diff_view.CSS)
+        css.load_from_string(CSS + agent_panel.CSS + approval.CSS + chat_view.CSS + diff_view.CSS + prompt_page.CSS)
         Gtk.StyleContext.add_provider_for_display(
             Gdk.Display.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
@@ -76,6 +77,8 @@ class Application(Adw.Application):
         )
         Animations.get().connect("changed", lambda *_: self._load_animated_css())
         self._load_animated_css()
+        # The shell prompt set up in Preferences → Prompt, read by every bash tab
+        prompt.follow(Settings.get())
         # Terminals and windows catch these keys themselves (see shortcuts.py);
         # registering them here only shows them next to the items in menus
         for name, accel in terminal.SHORTCUTS.items():
