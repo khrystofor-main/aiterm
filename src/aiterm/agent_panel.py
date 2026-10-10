@@ -16,10 +16,11 @@ import os
 import shlex
 import shutil
 import subprocess
+import time
 
 from gi.repository import Adw, GLib, Graphene, Gtk
 
-from aiterm import animations
+from aiterm import agy_history, animations
 
 from aiterm.chat import AgentProcess, chat_command
 from aiterm.chat_view import ChatView
@@ -71,10 +72,12 @@ class AgentPanel(Adw.Bin):
         self.chat = None  # the chat view
         self.setup_declined = False
         # Switching the view keeps the conversation: the folder agy runs in,
-        # and either a conversation id (from the chat) or "continue" (the
+        # and either a conversation id (the chat's, or the one agy's own
+        # interface was in, from agy_history) or "continue" (not known: the
         # Terminal view's conversation is the folder's most recent one)
         self.agent_cwd = None
         self.resume = None
+        self.terminal_started = None  # when the Terminal view's agy started (time.time())
         self.last_chat = None  # the chat view to show again, with its messages
         self._offset = 0.0  # how far it is pushed off to the right, 0..1 of its width
         self._slides = 0  # counts slides, so an interrupted one does not finish
@@ -163,6 +166,7 @@ class AgentPanel(Adw.Bin):
         if self.resume and self.resume != "continue" and os.path.basename(argv[0]) == "agy":
             argv = argv + ["--conversation", self.resume]
         self.terminal = Terminal(cwd=cwd, argv=argv, env=self._environment())
+        self.terminal_started = time.time()
         self.terminal.connect("exited", lambda *_: self._on_exited())
         self.set_child(Gtk.ScrolledWindow(child=self.terminal, hscrollbar_policy=Gtk.PolicyType.NEVER))
 
@@ -170,13 +174,24 @@ class AgentPanel(Adw.Bin):
         chat = self.last_chat
         if chat and self.resume == chat.process.conversation_id:
             # Back from the Terminal view, which went on with this conversation
-            chat.add_note("Back from the Terminal view: the same conversation, but what was said there "
-                          "is shown only there.")
+            chat.replay_from_terminal()
         elif self.resume == "continue":
+            # Which conversation is not known until agy starts: its messages
+            # show then (ChatView._show_continued)
             chat = ChatView(AgentProcess(argv, cwd, self._environment(), continue_last=True),
                             self.window.approval)
-            chat.add_note("Continuing the conversation from the Terminal view; its earlier messages "
-                          "are shown there.")
+            chat.continued_note = chat.add_note("Continuing the conversation from the Terminal view; its "
+                                                "earlier messages are shown there.")
+        elif self.resume:
+            # The conversation the Terminal view was in, by its id
+            chat = ChatView(AgentProcess(argv, cwd, self._environment()), self.window.approval)
+            chat.process.conversation_id = self.resume
+            steps = agy_history.read_steps(self.resume)
+            if steps:
+                chat.replay(steps)
+            else:
+                chat.add_note("Continuing the conversation from the Terminal view; its earlier messages "
+                              "are shown there.")
         else:
             chat = ChatView(AgentProcess(argv, cwd, self._environment()), self.window.approval)
         self.chat = self.last_chat = chat
@@ -189,12 +204,28 @@ class AgentPanel(Adw.Bin):
             self.chat.process.switching = True  # no "Stopped." in the chat
             self.chat.process.stop()
             self.resume = self.chat.process.conversation_id or self.resume
-        elif self.terminal and self.resume in (None, "continue"):
-            self.resume = "continue"  # (started with --conversation: keeps that id)
+            # Where the transcript ends now: back from the Terminal view, the
+            # chat shows what came after
+            self.chat.history_index = agy_history.last_index(self.chat.process.conversation_id)
+        elif self.terminal:
+            self.resume = self._terminal_conversation()
         self.terminal = self.chat = None
         self.set_child(None)  # closing the terminal hangs up agy
         if self.get_visible():
             self.start()
+
+    def _terminal_conversation(self):
+        """The conversation agy's own interface is in, to go on with in the
+        chat: the one it was last typed in (agy_history), which /resume or a
+        new conversation there may have changed; else the one it started
+        with, or "continue"."""
+        active = agy_history.active_conversation(self.agent_cwd or os.path.expanduser("~"),
+                                                 self.terminal_started or time.time())
+        if active == agy_history.NEW:
+            return None  # a new conversation, nothing said in it yet
+        if active:
+            return active
+        return self.resume if self.resume not in (None, "continue") else "continue"
 
     def _on_window_destroyed(self, handler):
         Settings.get().disconnect(handler)

@@ -38,7 +38,7 @@ from aiterm import animations, dbus_api, effects  # noqa: E402
 from aiterm.application import Application  # noqa: E402
 from aiterm.animations import Animations  # noqa: E402
 from aiterm import feedback_page as feedback_page_module  # noqa: E402
-from aiterm.chat_view import AgentMessage, CommandRow, EditRow, markdown_to_pango, theme_colors, unbreakable_words  # noqa: E402
+from aiterm.chat_view import AgentMessage, CommandRow, EditRow, ToolRow, markdown_to_pango, theme_colors, unbreakable_words  # noqa: E402
 from aiterm.palettes import PALETTES  # noqa: E402
 from aiterm.preferences import PreferencesDialog  # noqa: E402
 from aiterm.prompt import COLORS  # noqa: E402
@@ -52,6 +52,10 @@ os.environ["AITERM_CONFIG_DIR"] = CONFIG_DIR
 os.environ["AITERM_AGENT"] = "/bin/bash --norc --noprofile"
 # …and the chat view a fake agy that speaks the same NDJSON (tests/fake_agy.py)
 os.environ["AITERM_CHAT_AGENT"] = f"{sys.executable} {os.path.join(ROOT, 'tests', 'fake_agy.py')}"
+# …which keeps its transcripts, as agy does, in a throwaway folder, where the
+# app reads them (agy_history.py): never the user's ~/.gemini
+AGY_DIR = os.path.join(CONFIG_DIR, "agy")
+os.environ["AITERM_AGY_DIR"] = AGY_DIR
 # Feedback goes to a fake GitHub (tests/fake_gh.py), never the real one
 GH_STATE = os.path.join(CONFIG_DIR, "fake-gh.json")
 os.environ["FAKE_GH_STATE"] = GH_STATE
@@ -1113,6 +1117,10 @@ def steps(app):
     texts = lambda: [label.get_label() for w in widgets(chat.messages)
                      for label in (w.labels() if isinstance(w, AgentMessage) else [w])
                      if isinstance(label, Gtk.Label)]
+    chat_texts = lambda c: [label.get_label() for w in widgets(c.messages)  # with the tools' lines
+                            for label in (w.labels() if isinstance(w, AgentMessage)
+                                          else [w.label] if isinstance(w, ToolRow) else [w])
+                            if isinstance(label, Gtk.Label)]
     chat.input.get_buffer().set_text("hello")
     chat.send()
     check("a message starts the agent and shows the reply",
@@ -1261,16 +1269,18 @@ def steps(app):
     panel = win.agent_panel
     check("…and remembers the chat's conversation for it", panel.resume == chat.process.conversation_id,
           f"{panel.resume} vs {chat.process.conversation_id}")
-    settings.agent_view = "chat"
-    check("back in Chat, the same conversation shows again with a note",
-          panel.chat is chat and "Back from the Terminal view" in " ".join(texts()))
     count = len(texts())
+    settings.agent_view = "chat"
+    check("back in Chat, the same conversation shows again, with nothing new said in the Terminal view",
+          panel.chat is chat and len(texts()) == count and "Back from the Terminal view" not in " ".join(texts()),
+          str(texts()[count:]))
     chat.send("still here")
     check("…and goes on with the same conversation id",
           wait_for(lambda: any("You said: <b>still here</b>" in t for t in texts()))
           and "--conversation" in chat.process.started_argv, str(chat.process.started_argv))
     wait_for(lambda: not chat.process.busy)
-    # A conversation begun in the Terminal view: the chat continues it
+    # A conversation begun in the Terminal view: the chat continues it, and
+    # shows its earlier messages once agy says which one it is
     settings.agent_view = "terminal"
     panel.last_chat, panel.resume = None, None  # as if the Terminal view came first
     settings.agent_view = "chat"
@@ -1282,6 +1292,73 @@ def steps(app):
     check("…with agy --continue", wait_for(lambda: panel.chat.process.running)
           and "--continue" in panel.chat.process.started_argv, str(panel.chat.process.started_argv))
     wait_for(lambda: not panel.chat.process.busy)
+    continued = chat_texts(panel.chat)
+    check("…and once agy started, that conversation's earlier messages show above, in place of the note",
+          "Continuing the conversation" not in " ".join(continued) and "hello" in continued
+          and continued.index("hello") < continued.index("hello again") and continued.count("hello again") == 1,
+          str(continued))
+
+    # agy's own interface was typed in: the chat follows its conversation by
+    # id and shows what was said there (agy_history.py)
+    def tui_said(conversation, *records):
+        """What agy writes when the user types in its own interface: the
+        conversation's transcript and a line in history.jsonl."""
+        path = os.path.join(AGY_DIR, "brain", conversation, ".system_generated", "logs", "transcript.jsonl")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        start = sum(1 for _ in open(path)) if os.path.exists(path) else 0
+        with open(path, "a") as f:
+            for i, (kind, fields) in enumerate(records):
+                f.write(json.dumps({"step_index": start + i, "type": kind, "status": "DONE", **fields}) + "\n")
+        with open(os.path.join(AGY_DIR, "history.jsonl"), "a") as f:
+            f.write(json.dumps({"display": "typed", "timestamp": int(time.time() * 1000),
+                                "workspace": panel.agent_cwd, "conversationId": conversation}) + "\n")
+
+    def typed(text):
+        return ("USER_INPUT", {"content": f"<USER_REQUEST>\n{text}\n</USER_REQUEST>\n"
+                                          "<ADDITIONAL_METADATA>\ntime\n</ADDITIONAL_METADATA>"})
+
+    settings.agent_view = "terminal"
+    tui_said("tui-1", typed("from the terminal"),
+             ("PLANNER_RESPONSE", {"thinking": "secret thoughts", "tool_calls": [{"name": "call_mcp_tool", "args": {
+                 "ServerName": '"aiterm_terminal"', "ToolName": '"run_command"',
+                 "Arguments": json.dumps(json.dumps({"command": "ls -la"}))}}]}),
+             ("GENERIC", {"content": "Created At: x\nCompleted At: y\n$ ls -la\n[exit code 0]"}),
+             ("SYSTEM_MESSAGE", {"content": "a system message"}),
+             ("PLANNER_RESPONSE", {"content": "Answered **there**"}))
+    settings.agent_view = "chat"
+    tui = panel.chat
+    shown = chat_texts(tui)
+    check("Terminal → Chat: the chat goes on with the Terminal view's conversation and shows what was said there",
+          tui.process.conversation_id == "tui-1" and shown[:3] == [
+              "from the terminal", "Ran in your terminal: $ ls -la", "Answered <b>there</b>"], str(shown))
+    check("…without agy's tags, thinking or system messages",
+          not any(word in " ".join(shown) for word in ("USER_REQUEST", "secret", "system message", "Continuing")))
+    check("…at once, not animated", all(w.get_opacity() == 1 and w.get_margin_top() == 0
+                                        for w in widgets(tui.messages)))
+    tui.send("next")
+    check("…and continues it with --conversation", wait_for(lambda: not tui.process.busy)
+          and tui.process.started_argv[-2:] == ["--conversation", "tui-1"], str(tui.process.started_argv))
+    settings.agent_view = "terminal"
+    tui_said("tui-1", typed("typed later"), ("PLANNER_RESPONSE", {"content": "later answer"}))
+    settings.agent_view = "chat"
+    shown = chat_texts(tui)
+    check("back to the same chat, what was said in the Terminal view meanwhile is added below",
+          panel.chat is tui and shown.count("next") == 1 and shown[-2:] == ["typed later", "later answer"]
+          and "You said: <b>next</b>" in shown and shown.index("You said: <b>next</b>") < shown.index("typed later"),
+          str(shown))
+    settings.agent_view = "terminal"
+    tui_said("tui-2", typed("in another conversation"))
+    settings.agent_view = "chat"
+    check("after /resume or a new conversation in the Terminal view, the chat follows it",
+          panel.chat is not tui and panel.chat.process.conversation_id == "tui-2"
+          and chat_texts(panel.chat) == ["in another conversation"], str(chat_texts(panel.chat)))
+    settings.agent_view = "terminal"
+    tui_said("tui-3")
+    os.remove(os.path.join(AGY_DIR, "brain", "tui-3", ".system_generated", "logs", "transcript.jsonl"))
+    settings.agent_view = "chat"
+    check("…and without its transcript says its messages are in the Terminal view",
+          panel.chat.process.conversation_id == "tui-3"
+          and "Continuing the conversation" in " ".join(chat_texts(panel.chat)), str(chat_texts(panel.chat)))
     settings.agent_view = "terminal"
 
     # Without the agy plugin (as after installing the .deb), the panel asks first

@@ -91,6 +91,10 @@ echo "file edits (plans, diffs, safe writes)"
 "$ROOT/tests/edits_unit.py"; code=$?
 if [ $code = 0 ]; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
 
+echo "agy's own records (transcripts, history.jsonl)"
+"$ROOT/tests/agy_history_unit.py"; code=$?
+if [ $code = 0 ]; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
+
 echo "feedback (GitHub issues through a fake gh, the watcher)"
 "$ROOT/tests/feedback_unit.py"; code=$?
 if [ $code = 0 ]; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
