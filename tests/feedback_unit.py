@@ -3,6 +3,7 @@
 feedback thread runs (dev/feedback-watch), against tests/fake_gh.py: nothing
 reaches GitHub. Run: tests/feedback_unit.py"""
 
+import fcntl
 import json
 import os
 import subprocess
@@ -28,8 +29,10 @@ def check(name, ok, detail=""):
 
 
 def state():
-    with open(STATE) as f:
-        return json.load(f)
+    with open(STATE + ".lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        with open(STATE) as f:
+            return json.load(f)
 
 
 def change(**values):

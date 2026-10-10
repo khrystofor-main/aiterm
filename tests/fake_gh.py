@@ -6,6 +6,7 @@ tests never reach GitHub. Its GitHub lives in the JSON file FAKE_GH_STATE:
 Tests read and change that file to play the user or Claude.
 Run as AITERM_GH="python3 tests/fake_gh.py"."""
 
+import fcntl
 import hashlib
 import json
 import os
@@ -29,8 +30,11 @@ def load():
 
 
 def save(state):
-    with open(STATE, "w") as f:
+    # Whole and at once: the app runs several gh calls at a time, and the
+    # tests read the file meanwhile
+    with open(STATE + ".tmp", "w") as f:
         json.dump(state, f, indent=1)
+    os.replace(STATE + ".tmp", STATE)
 
 
 def now(state):
@@ -72,6 +76,9 @@ def main(argv):
             pass
         else:
             endpoint = arg
+    # One call at a time, so concurrent calls don't lose each other's changes
+    lock = open(STATE + ".lock", "w")
+    fcntl.flock(lock, fcntl.LOCK_EX)
     state = load()
     if not state["logged_in"]:
         print("To get started with GitHub CLI, please run:  gh auth login", file=sys.stderr)

@@ -7,6 +7,7 @@ never talks to a running Aiterm. Note: the clipboard checks overwrite the
 desktop clipboard. Run: tests/gtk_smoke.py
 """
 
+import fcntl
 import json
 import os
 import shutil
@@ -277,12 +278,15 @@ def prompt_page(page, term, log):
 
 
 def gh_state(change=None):
-    with open(GH_STATE) as f:
-        state = json.load(f)
-    if change:
-        change(state)
-        with open(GH_STATE, "w") as f:
-            json.dump(state, f)
+    """The fake GitHub's state; `change` edits it, under fake_gh.py's lock."""
+    with open(GH_STATE + ".lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        with open(GH_STATE) as f:
+            state = json.load(f)
+        if change:
+            change(state)
+            with open(GH_STATE, "w") as f:
+                json.dump(state, f)
     return state
 
 
