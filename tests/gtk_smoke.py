@@ -56,6 +56,9 @@ os.environ["AITERM_CHAT_AGENT"] = f"{sys.executable} {os.path.join(ROOT, 'tests'
 GH_STATE = os.path.join(CONFIG_DIR, "fake-gh.json")
 os.environ["FAKE_GH_STATE"] = GH_STATE
 os.environ["AITERM_GH"] = f"{sys.executable} {os.path.join(ROOT, 'tests', 'fake_gh.py')}"
+# The test runs from here, as `cd START_DIR && aiterm`: the first tab opens here
+START_DIR = os.path.realpath(tempfile.mkdtemp(prefix="aiterm-start-"))
+os.mkdir(os.path.join(START_DIR, "sub"))
 results = []
 
 
@@ -424,6 +427,38 @@ def feedback_page(page):
           and len(gh_state()["issues"]) == 1, opened)
 
 
+def command_line(cwd, options=None):
+    """What a later `aiterm` run forwards to the running app: its folder,
+    arguments and parsed options."""
+    return Gio.ApplicationCommandLine(
+        arguments=GLib.Variant("aay", [os.fsencode(a) + b"\0" for a in ("aiterm",)]),
+        options=GLib.Variant("a{sv}", options or {}),
+        platform_data=GLib.Variant("a{sv}", {"cwd": GLib.Variant("ay", os.fsencode(cwd) + b"\0")}))
+
+
+def start_folder(app, win):
+    """`aiterm` from another folder while Aiterm runs: a new window there."""
+    path = lambda p: GLib.Variant("ay", os.fsencode(p) + b"\0")
+    for name, line, expected in [
+        ("running aiterm again from another folder opens a window there", command_line("/tmp"), "/tmp"),
+        ("…aiterm DIR opens it, relative to the caller's folder",
+         command_line(START_DIR, options={"": GLib.Variant("aay", [b"sub\0"])}), os.path.join(START_DIR, "sub")),
+        ("…and so does aiterm -w DIR", command_line("/", options={"working-directory": path(START_DIR)}), START_DIR),
+    ]:
+        before = set(app.get_windows())
+        code = app.do_command_line(line)
+        opened = [w for w in app.get_windows() if w not in before]
+        other = opened[0].current_terminal() if len(opened) == 1 else None
+        check(name, code == 0 and other is not None and wait_for(lambda: other.current_directory() == expected),
+              f"{code} {opened} {other and other.current_directory()!r}")
+        for w in opened:
+            w.destroy()
+        win.present()
+    before = len(app.get_windows())
+    code = app.do_command_line(command_line("/", options={"working-directory": path("/no-such-dir")}))
+    check("…a folder that does not exist is an error, no window", code == 1 and len(app.get_windows()) == before)
+
+
 def run(app):
     try:
         steps(app)
@@ -449,6 +484,9 @@ def steps(app):
 
     # The shell starts asynchronously; input sent before the prompt is lost
     check("shell shows a prompt", wait_for(lambda: "$ " in screen_text(term)))
+    check("the first tab opens in the folder aiterm was run from",
+          wait_for(lambda: term.current_directory() == START_DIR), repr(term.current_directory()))
+    start_folder(app, win)
     term.feed_child(b"echo aiterm-$((6*7))\n")
     ok = wait_for(lambda: "aiterm-42" in screen_text(term))
     check("bash runs commands", ok, screen_text(term)[-300:])
@@ -643,7 +681,7 @@ def steps(app):
     run = lambda command, timeout=10: call("RunCommand", (win.get_id(), command, timeout), "(usu)", "(ssssi)")
     result = run("echo dbus-$((2+3))")
     check("RunCommand types the command and returns its output",
-          result == ("done", os.path.expanduser("~"), "echo dbus-$((2+3))", "dbus-5", 0), str(result))
+          result == ("done", START_DIR, "echo dbus-$((2+3))", "dbus-5", 0), str(result))
     result = run("false")
     check("RunCommand returns the exit code", result[:1] == ("done",) and result[4] == 1, str(result))
     result = call("ReadCommands", (win.get_id(), 2), "(ui)", "(sa(ssid))")
@@ -726,10 +764,9 @@ def steps(app):
         wait_for(lambda: box, seconds)
         return (process.get_exit_status(), box[0][1]) if box else (None, "no reply")
 
-    home = os.path.expanduser("~")
     result = run_tool("aiterm-run", "echo tool-$((3*3))")
     check("aiterm-run runs a command through the app",
-          result == (0, f"[terminal folder: {home}]\n$ echo tool-$((3*3))\ntool-9\n"), repr(result))
+          result == (0, f"[terminal folder: {START_DIR}]\n$ echo tool-$((3*3))\ntool-9\n"), repr(result))
     result = run_tool("aiterm-run", "ls /no-such-dir")
     check("aiterm-run shows a failed command's exit code",
           result[0] == 0 and "No such file" in result[1] and result[1].endswith("[exit code 2]\n"), repr(result))
@@ -778,7 +815,7 @@ def steps(app):
           not error and data["output"] == "mcp-16" and data["exit_code"] == 0
           and last().text == "echo mcp-$((4*4))", repr(data))
     check("…and shows the model the folder and the command",
-          text == f"[terminal folder: {home}]\n$ echo mcp-$((4*4))\nmcp-16", repr(text))
+          text == f"[terminal folder: {START_DIR}]\n$ echo mcp-$((4*4))\nmcp-16", repr(text))
     error, text, data = tool("run_command", command="cd /tmp && false")
     check("run_command reports the exit code and the new folder",
           not error and data["exit_code"] == 1 and data["folder"] == "/tmp" and text.endswith("[exit code 1]"),
@@ -1389,8 +1426,12 @@ def steps(app):
 
 app = Application(application_id="io.github.khrystofor_main.Aiterm.Test",
                   flags=Gio.ApplicationFlags.NON_UNIQUE)
-# The handler runs before Application.do_activate opens the window
-app.connect("activate", lambda app: GLib.idle_add(run, app))
-app.run([])
+# The handler runs before Application.do_activate opens the window; only the
+# first time (start_folder() activates the app again)
+started = []
+app.connect("activate", lambda app: started or started.append(GLib.idle_add(run, app)))
+os.chdir(START_DIR)
+app.run(["aiterm"])
 shutil.rmtree(CONFIG_DIR, ignore_errors=True)
+shutil.rmtree(START_DIR, ignore_errors=True)
 sys.exit(0 if results and all(results) else 1)

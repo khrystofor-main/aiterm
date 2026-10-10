@@ -1,5 +1,7 @@
 """The application object: one process, any number of windows."""
 
+import os
+
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -65,7 +67,15 @@ class Application(Adw.Application):
     def __init__(self, application_id=APP_ID, **kwargs):
         # Adw.Application follows the system light/dark preference on its own.
         # Tests pass their own ID so they never reach a running Aiterm
-        super().__init__(application_id=application_id, **kwargs)
+        flags = kwargs.pop("flags", Gio.ApplicationFlags.DEFAULT_FLAGS)
+        super().__init__(application_id=application_id,
+                         flags=flags | Gio.ApplicationFlags.HANDLES_COMMAND_LINE, **kwargs)
+        # `aiterm DIR`, `aiterm -w DIR`: the folder of the new window's first tab
+        self.add_main_option("working-directory", ord("w"), GLib.OptionFlags.NONE, GLib.OptionArg.FILENAME,
+                             "Open the first tab in DIR instead of the current folder", "DIR")
+        self.add_main_option(GLib.OPTION_REMAINING, 0, GLib.OptionFlags.NONE, GLib.OptionArg.FILENAME_ARRAY,
+                             "", "[DIR]")
+        self._next_window_cwd = None  # set by do_command_line for do_activate
 
     def do_startup(self):
         Adw.Application.do_startup(self)
@@ -126,10 +136,27 @@ class Application(Adw.Application):
         self.terminal_api.unregister()
         Adw.Application.do_dbus_unregister(self, connection, object_path)
 
+    def do_command_line(self, command_line):
+        """Every `aiterm` run lands here, in the first process: the first run's
+        own, and later runs forwarded over D-Bus while it is running. Each opens
+        a window in the folder the command was run from (or the one it names):
+        `cd ~/project && aiterm` starts there. The desktop launcher runs it from
+        the session's folder, the home folder, so the menu and dock open in ~."""
+        try:
+            cwd = start_directory(command_line)
+        except ValueError as error:
+            command_line.printerr_literal(f"aiterm: {error}\n")
+            return 1
+        self._next_window_cwd = cwd
+        self.activate()
+        return 0
+
     def do_activate(self):
         # Launching the app again (menu, dock) opens another window in the same
-        # process, like other GNOME terminals
-        Window(application=self).present()
+        # process, like other GNOME terminals. Activated without a command line
+        # (D-Bus activation), it opens in the home folder
+        cwd, self._next_window_cwd = self._next_window_cwd, None
+        Window(application=self, cwd=cwd).present()
 
     def new_window(self):
         """Opens a window in the folder of the current tab."""
@@ -183,5 +210,28 @@ class Application(Adw.Application):
         ).present(self.get_active_window())
 
 
+def start_directory(command_line):
+    """The folder for the window a command line opens: `-w DIR` or `DIR`,
+    relative to the caller's folder, else the caller's folder itself. Raises
+    ValueError for a folder that does not exist."""
+    options = command_line.get_options_dict()
+    named = options.lookup_value("working-directory", GLib.VariantType("ay"))
+    rest = options.lookup_value(GLib.OPTION_REMAINING, GLib.VariantType("aay"))
+    rest = [os.fsdecode(path) for path in rest.get_bytestring_array()] if rest else []
+    if named and rest or len(rest) > 1:
+        raise ValueError("give one folder to open in")
+    arg = os.fsdecode(named.get_bytestring()) if named else rest[0] if rest else None
+    if arg is None:
+        cwd = command_line.get_cwd()
+        # The caller's folder may be gone (deleted while its shell sat there):
+        # then the home folder, as before
+        return cwd if cwd and os.path.isdir(cwd) else None
+    path = command_line.create_file_for_arg(arg).get_path()
+    if not path or not os.path.isdir(path):
+        raise ValueError(f"{arg}: no such folder")
+    return path
+
+
 def main(argv):
+    GLib.set_prgname("aiterm")  # for --help, as argv[0] is __main__.py
     return Application().run(argv)
