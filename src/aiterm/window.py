@@ -22,6 +22,8 @@ SHORTCUTS = {
     "win.find": "<Control><Shift>f",
     # Alt+Enter switches between the shell and the agent, as in the tmux version
     "win.switch-to-agent": "<Alt>Return",
+    # Shows or hides the agent panel; plain Ctrl+B stays with bash
+    "win.agent-panel": "<Control><Shift>b",
     "app.preferences": "<Control>comma",
     "win.zoom-in": "<Control>plus|<Control>equal|<Control>KP_Add",
     "win.zoom-out": "<Control>minus|<Control>KP_Subtract",
