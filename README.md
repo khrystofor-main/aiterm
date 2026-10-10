@@ -86,7 +86,7 @@ The installer (no sudo) links the commands into `~/.local/bin`, adds **Aiterm** 
 
 ## Usage
 
-Open **Aiterm** from the menu (or run `aiterm`). Run from a terminal, it opens in the folder you ran it from (`aiterm DIR` or `aiterm -w DIR` opens DIR), with a new window when Aiterm is already running; from the menu it opens in your home folder. Work in your shell; press **Alt+Enter** to talk to the agent and again to get back. The panel shows agy's own interface; for the chat drawn by Aiterm, set Preferences → Agent → View to **Chat** (Enter sends, Shift+Enter adds a line). Switching views keeps the conversation: agy's interface shows the chat's messages, and the chat goes on from where agy's interface was (its earlier messages stay there).
+Open **Aiterm** from the menu (or run `aiterm`). Run from a terminal, it gives the prompt back at once and prints nothing there (only errors about the command itself, like a folder that does not exist); it opens in the folder you ran it from (`aiterm DIR` or `aiterm -w DIR` opens DIR), with a new window when Aiterm is already running; from the menu it opens in your home folder. Work in your shell; press **Alt+Enter** to talk to the agent and again to get back. The panel shows agy's own interface; for the chat drawn by Aiterm, set Preferences → Agent → View to **Chat** (Enter sends, Shift+Enter adds a line). Switching views keeps the conversation: agy's interface shows the chat's messages, and the chat goes on from where agy's interface was (its earlier messages stay there).
 
 | Keys | Action |
 |---|---|
@@ -112,6 +112,10 @@ A failed command's line shakes and keeps a `✗` with its exit code at the end; 
 Preferences → Feedback (or **Send Feedback** in the main menu) is where you say what you don't like: write it, attach screenshots or recordings (PNG, JPEG, GIF, WebP, MP4, WebM, up to 25 MB), and **Send**. It becomes a GitHub issue labelled `feedback`, sent with your own `gh` (no token in the app); the files go to the repository's `feedback-assets` branch and show in the issue. With it go the versions of Aiterm, GTK, libadwaita, VTE and agy, the system, and the preferences you changed — never your terminal's text. Without `gh` or write access, Send opens GitHub's form in the browser instead. Claude picks the issue up (rules: [docs/feedback-agent.md](docs/feedback-agent.md)), and the page lists your feedback with what each waits for — Sent, In Progress, Question for You, Change Ready, Done — and the conversation, answered from the app (answers can carry screenshots and recordings too: the attach button or drag and drop). A question or a finished change comes as a desktop notification.
 
 Before each command the agent runs, a bar above your terminal shows it with **Run** and **Don't Run**. For fully hands-free use, turn off **Ask Before the Agent Runs a Command** in Preferences → Agent; the `sudo` guard keeps working.
+
+## Troubleshooting
+
+Aiterm writes its own output — GTK and GLib warnings, Python errors — to `~/.local/state/aiterm/aiterm.log` (`$XDG_STATE_HOME/aiterm/aiterm.log`), never to the terminal it was started from; a log past 512 KB is moved to `aiterm.log.1` at the next start. To see that output live, quit Aiterm and run `aiterm --foreground`: it stays in your terminal and prints there.
 
 ## Tests
 
