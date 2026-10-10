@@ -908,6 +908,11 @@ def steps(app):
           rows()[0].expander.get_label_widget().get_last_child().get_label())
     check("…with Run / Don't Run while it waits for approval",
           wait_for(lambda: rows()[0].buttons.get_visible()) and win.approval.pending)
+    check("…asked only there: the bar above the terminal stays hidden", not win.approval.get_reveal_child())
+    win.agent_panel.set_visible(False)
+    check("…until the chat is out of sight: then the bar asks", win.approval.get_reveal_child())
+    win.agent_panel.set_visible(True)
+    check("…and hides again when the chat is back", wait_for(lambda: not win.approval.get_reveal_child()))
     rows()[0].run_button.emit("clicked")
     check("Run in the chat runs it in the user's terminal",
           wait_for(lambda: last().text == "echo chat-$((5*5))", 20) and last().output == "chat-25",
@@ -947,7 +952,7 @@ def steps(app):
     check("…numbered: old and new line on the left", "2   -two" in diff_text and "  2 +2" in diff_text,
           repr(diff_text))
     check("…and Apply / Reject while it waits", wait_for(lambda: cards()[0].buttons.get_visible())
-          and win.approval.pending and win.approval.kind == "edit")
+          and win.approval.pending and win.approval.kind == "edit" and not win.approval.get_reveal_child())
     cards()[0].apply_button.emit("clicked")
     check("Apply in the chat writes the file",
           wait_for(lambda: not cards()[0].running) and open(edited).read() == "one\n2\nthree\n"
