@@ -13,10 +13,13 @@ parameters into a diff, so the chat can show what they changed.
 import difflib
 import json
 import os
+import re
 import tempfile
 
 MAX_BYTES = 1_000_000  # larger files are not something to edit through a diff
 CONTEXT_LINES = 3
+HUNK = re.compile(r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+NATIVE_HUNK = re.compile(r"@@ line (\d+) @@")
 
 
 class EditError(Exception):
@@ -91,6 +94,33 @@ def counts(lines):
     added = sum(1 for line in lines if line.startswith("+") and not line.startswith("+++"))
     removed = sum(1 for line in lines if line.startswith("-") and not line.startswith("---"))
     return added, removed
+
+
+def numbered(lines):
+    """(old line number, new line number, line) for a diff's body, numbers
+    taken from its hunk headers: None where a line has no number on that
+    side (an added line has no old one) or the header does not say."""
+    old = new = None
+    out = []
+    for line in lines:
+        if line.startswith(("--- ", "+++ ")):
+            continue
+        if line.startswith("@@"):
+            # agy's own tools say only where the change starts (diff_native)
+            hunk, native = HUNK.match(line), NATIVE_HUNK.match(line)
+            old, new = ((int(hunk[1]), int(hunk[2])) if hunk else
+                        (int(native[1]), int(native[1])) if native else (None, None))
+            out.append((None, None, line))
+        elif line.startswith("+"):
+            out.append((None, new, line))
+            new = new and new + 1
+        elif line.startswith("-"):
+            out.append((old, None, line))
+            old = old and old + 1
+        else:
+            out.append((old, new, line))
+            old, new = old and old + 1, new and new + 1
+    return out
 
 
 def write(path, before, after):

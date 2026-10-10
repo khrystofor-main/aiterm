@@ -71,6 +71,14 @@ check("the diff has the change and the lines around it",
       diff[:2] == ["--- a/app.py", "+++ b/app.py"] and " def total(items):" in diff and "+    total = 0" in diff,
       str(diff))
 check("…and counts its lines", edits.counts(diff) == (2, 2), str(edits.counts(diff)))
+rows = edits.numbered(diff)
+check("line numbers come from the hunk header, one side for added and removed lines",
+      rows[0] == (None, None, diff[2]) and (1, 1, " def total(items):") in rows
+      and (2, None, "-    totla = 0") in rows and (None, 2, "+    total = 0") in rows, str(rows))
+two = edits.numbered(edits.diff("".join(f"{i}\n" for i in range(1, 21)),
+                                "".join(f"{i}\n" for i in range(1, 21)).replace("2\n", "two\n", 1)
+                                .replace("18\n", "eighteen\n"), path))
+check("…counting again from each hunk", (None, 18, "+eighteen") in two and (19, 19, " 19") in two, str(two))
 new_diff = edits.diff(None, "a\nb\n", "/x/new.txt")
 check("a new file's diff is all additions", new_diff[0] == "--- /dev/null" and edits.counts(new_diff) == (2, 0),
       str(new_diff))
@@ -123,6 +131,12 @@ check("multi_replace_file_content: one diff, one hunk per chunk",
 native = edits.diff_native("write_to_file", {"TargetFile": "\"/p/new.txt\"", "CodeContent": "\"hi\\n\""})
 check("write_to_file, with parameters JSON-encoded as in some of agy's logs",
       native == ("/p/new.txt", ["--- /dev/null", "+++ b/new.txt", "@@ -0,0 +1 @@", "+hi"]), str(native))
+check("…and its lines are numbered from where agy says the change starts",
+      edits.numbered(native[1])[1:] == [(10, 10, " a"), (11, None, "-b"), (None, 11, "+c")]
+      if (native := edits.diff_native("replace_file_content", {"TargetFile": "/p", "TargetContent": "a\nb",
+          "ReplacementContent": "a\nc", "StartLine": 10})) else False, str(native))
+check("…or not at all when it does not say",
+      all(old is None and new is None for old, new, _ in edits.numbered(["@@", "-b", "+c"])))
 check("other tools are not edits", edits.diff_native("view_file", {"AbsolutePath": "/etc/hostname"}) is None)
 
 sys.exit(0 if all(results) else 1)
