@@ -151,6 +151,19 @@ def write(path, before, after):
         raise EditError(f"Cannot write {path}: {error.strerror}.") from None
 
 
+def undo(path, before, after):
+    """Puts back the file as it was before an applied change, if it still
+    holds `after`: writes `before`, or removes the file the change created."""
+    if read(path) != after:
+        raise Changed(f"{path} changed after the edit was applied; it was not undone.")
+    if before is not None:
+        return write(path, after, before)
+    try:
+        os.unlink(path)
+    except OSError as error:
+        raise EditError(f"Cannot remove {path}: {error.strerror}.") from None
+
+
 # agy's own file tools: name -> how to read their parameters
 
 def diff_native(name, params):

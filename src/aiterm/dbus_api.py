@@ -168,6 +168,7 @@ class TerminalApi:
             except edits.EditError as error:
                 status = "changed" if isinstance(error, edits.Changed) else "failed"
                 return invocation.return_value(GLib.Variant("(ss)", (status, str(error))))
+            window.approval.emit("edit-applied", path, before or "", before is not None, after)
             invocation.return_value(GLib.Variant("(ss)", ("applied", "")))
 
         if not Settings.get().approve_agent_edits:

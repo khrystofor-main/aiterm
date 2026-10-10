@@ -43,7 +43,7 @@ The agent is [Antigravity CLI](https://antigravity.google/docs/cli/install) (`ag
 
   How to use each tool well (check the exit code, no pagers, you type `sudo` passwords) is in the tool descriptions, which the model reads with the tools.
 - **The agy plugin** (`agy-plugin/`) bundles the server with a few rules (`rules/AGENTS.md`): run shell commands with `run_command`, not the agent's own hidden shell, change files with `edit_file` / `write_file`, and don't change your settings unasked. The rules are on only while the plugin is, and your own `~/.gemini/GEMINI.md` stays yours.
-- **Two views of the agent.** *Terminal* runs agy's own interface in the panel. *Chat* is drawn by the app (`src/aiterm/chat_view.py`): messages, collapsible command blocks with output and exit code, Run / Don't Run buttons, file changes as diffs with Apply / Reject, and the tokens each turn took. Behind it, `agy --input-format stream-json --output-format stream-json` keeps the conversation open and streams typed events (`src/aiterm/chat.py`). Pick one in Preferences → Agent.
+- **Two views of the agent.** *Terminal* runs agy's own interface in the panel. *Chat* is drawn by the app (`src/aiterm/chat_view.py`): messages, collapsible command blocks with output and exit code, Run / Don't Run buttons, file changes as diffs with Apply / Reject (and Undo once applied), and the tokens each turn took. Behind it, `agy --input-format stream-json --output-format stream-json` keeps the conversation open and streams typed events (`src/aiterm/chat.py`). Pick one in Preferences → Agent.
 - **`aiterm-left` / `aiterm-run`** are the same API on the command line, for scripts and debugging.
 
 ## Safety model
@@ -51,7 +51,7 @@ The agent is [Antigravity CLI](https://antigravity.google/docs/cli/install) (`ag
 | Risk | What aiterm does |
 |---|---|
 | Agent runs a command you didn't want | Each command waits for **Run** in a bar above your terminal (**Don't Run** declines). The check is in the app, so no prompt or agent setting can skip it; turn it off in Preferences → Agent for hands-free use |
-| Agent changes a file you didn't want changed | Each change waits for **Apply**, shown as a diff in the chat and above your terminal; nothing is written before. A file you edited meanwhile is left alone. Changes agy makes with its own file tools are still shown in the chat ([plan](docs/v1.1-plan.md)) |
+| Agent changes a file you didn't want changed | Each change waits for **Apply**, shown as a diff in the chat and above your terminal; nothing is written before. A file you edited meanwhile is left alone. An applied change can be undone from its card in the chat. Changes agy makes with its own file tools are still shown in the chat ([plan](docs/v1.1-plan.md)) |
 | Agent types over your half-written command | `run_command` checks that the prompt line is empty and no program is running; otherwise it refuses and tells the agent why |
 | Agent runs `sudo` behind your back | Before any agent command with `sudo`, cached credentials are dropped (`sudo -K`), so **every** such command needs your password, typed in your terminal |
 | Agent hangs on `less`, `vim`, `[Y/n]` | Timeouts with partial output; the tool descriptions ban pagers and full-screen programs |

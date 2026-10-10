@@ -31,6 +31,9 @@ class ApprovalBar(Gtk.Revealer):
         # The agent proposed a change to a file (dbus_api.py): the path and
         # its diff, one line per line; the chat shows it in the edit's card
         "edit-proposed": (GObject.SignalFlags.RUN_FIRST, None, (str, str)),
+        # The app wrote it: the path, the text before (and whether the file
+        # existed) and after, so the chat's card can undo it
+        "edit-applied": (GObject.SignalFlags.RUN_FIRST, None, (str, str, bool, str)),
     }
 
     def __init__(self):
