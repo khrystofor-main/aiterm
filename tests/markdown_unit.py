@@ -82,6 +82,13 @@ check("headings by level",
       inline("# One\n## Two\n### Three") == '<span weight="bold" size="x-large">One</span>\n'
       '<span weight="bold" size="large">Two</span>\n<span weight="bold" size="medium">Three</span>',
       inline("# One\n## Two\n### Three"))
+for text, want in (
+        ("a `` ```bash `` b", "a <tt>```bash</tt> b"),  # a fence marker written as code
+        ("use `` `x` `` here", "use <tt>`x`</tt> here"),
+        ("`a``b`", "<tt>a``b</tt>"),
+        ("blocks (```bash ls```) and `---`", "blocks (<tt>bash ls</tt>) and <tt>---</tt>"),
+        ("x ```` y `` z", "x ```` y `` z")):  # no closing run as long: left as written
+    check(f"code spans close on a run as long as the opening one: {text}", inline(text) == want, inline(text))
 check("bold, italic, struck", inline("**b** *i* _j_ ~~s~~") == "<b>b</b> <i>i</i> <i>j</i> <s>s</s>",
       inline("**b** *i* _j_ ~~s~~"))
 check("bullets; an asterisk between spaces and snake_case stay as they are",

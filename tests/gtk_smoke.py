@@ -373,6 +373,28 @@ def feedback_page(page):
     check("an answer from the conversation goes to the issue",
           wait_for(lambda: gh_state()["comments"]["1"][-1]["body"] == "Twice as wide", 10))
     check("…and the feedback is In Progress again", wait_for(lambda: monitor.items[0].status == "working", 10))
+    check("…without the reopen hint while it is open", not conversation.reopen_hint.get_visible())
+
+    def finished(state):
+        state["comments"]["1"].append({"id": 9, "body": "<!-- aiterm-feedback: done -->\nWider now",
+                                       "user": {"login": "khrystofor-main"}, "created_at": "2026-10-10T14:00:00Z",
+                                       "html_url": "y"})
+        state["issues"][0].update(state="closed", comments=len(state["comments"]["1"]),
+                                  updated_at="2026-10-10T14:00:00Z")
+
+    gh_state(finished)
+    monitor.refresh()
+    check("a finished feedback still has the answer bar, with the reopen hint",
+          wait_for(lambda: monitor.items[0].status == "done" and conversation.reopen_hint.get_visible(), 10)
+          and conversation.answer_bar.get_visible())
+    conversation.answer.get_buffer().set_text("And a bit taller")
+    conversation.send()
+    check("a reply to it reopens the issue and goes to it",
+          wait_for(lambda: gh_state()["comments"]["1"][-1]["body"] == "And a bit taller", 10)
+          and gh_state()["issues"][0]["state"] == "open")
+    check("…it waits for Claude again and is polled as open",
+          wait_for(lambda: monitor.items[0].status == "sent" and not conversation.reopen_hint.get_visible(), 10)
+          and 1 in monitor.state["open"], (monitor.items[0].status, monitor.state))
     dialog.pop_subpage()
 
     opened = []
