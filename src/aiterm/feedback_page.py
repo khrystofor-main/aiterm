@@ -224,12 +224,75 @@ class FileChip(Gtk.Box):
         self.append(remove)
 
 
+class Attachments(Gtk.FlowBox):
+    """The files going with a message (a new feedback or a reply): chips with
+    a thumbnail and a remove button; hidden while empty. `toast` tells why a
+    file can't go. "changed" fires when files come or go."""
+
+    __gsignals__ = {"changed": (GObject.SignalFlags.RUN_FIRST, None, ())}
+
+    def __init__(self, toast):
+        super().__init__(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=3,
+                         column_spacing=8, row_spacing=8, visible=False)
+        self.toast = toast
+        self.files = []
+
+    def attach(self, paths):
+        for path in paths:
+            if not path or path in self.files:
+                continue
+            problem = feedback.check_file(path)
+            if problem:
+                self.toast(problem)
+                continue
+            self.files.append(path)
+            self.append(FileChip(path, self._remove))
+        self._changed()
+        return True
+
+    def _remove(self, chip):
+        self.files.remove(chip.path)
+        self.remove(chip.get_parent())
+        self._changed()
+
+    def clear(self):
+        self.files.clear()
+        self.remove_all()
+        self._changed()
+
+    def _changed(self):
+        self.set_visible(bool(self.files))
+        self.emit("changed")
+
+    def choose(self):
+        """The file dialog, for pictures and videos only."""
+        media = Gtk.FileFilter(name="Pictures and Videos")
+        for mime in FILE_FILTER_TYPES:
+            media.add_mime_type(mime)
+        filters = Gio.ListStore.new(Gtk.FileFilter)
+        filters.append(media)
+        dialog = Gtk.FileDialog(title="Attach Files", filters=filters, default_filter=media)
+        dialog.open_multiple(self.get_root(), None, self._chosen)
+
+    def _chosen(self, dialog, result):
+        try:
+            files = dialog.open_multiple_finish(result)
+        except GLib.Error:
+            return  # cancelled
+        self.attach([files.get_item(i).get_path() for i in range(files.get_n_items())])
+
+    def accept_drops(self, widget):
+        """Files dropped anywhere on `widget` are attached."""
+        drop = Gtk.DropTarget.new(Gdk.FileList, Gdk.DragAction.COPY)
+        drop.connect("drop", lambda _t, files, *_: self.attach([f.get_path() for f in files.get_files()]))
+        widget.add_controller(drop)
+
+
 class FeedbackPage(Adw.PreferencesPage):
     def __init__(self):
         super().__init__(title="Feedback", icon_name="mail-send-symbolic")
         self.monitor = FeedbackMonitor.get()
         self.context_items = None
-        self.files = []
         self.sending = False
 
         # Writing one
@@ -242,13 +305,13 @@ class FeedbackPage(Adw.PreferencesPage):
         self.text = Gtk.TextView()
         self.text.get_buffer().connect("changed", lambda *_: self._update_send())
         box.append(text_box(self.text, 110))
-        self.files_box = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=3,
-                                     column_spacing=8, row_spacing=8, visible=False)
+        self.files_box = Attachments(self.toast)
+        self.files = self.files_box.files
         box.append(self.files_box)
         buttons = Gtk.Box(spacing=12)
         self.attach_button = Gtk.Button(child=Adw.ButtonContent(icon_name="mail-attachment-symbolic",
                                                                 label="Attach Files…"))
-        self.attach_button.connect("clicked", lambda _b: self.choose_files())
+        self.attach_button.connect("clicked", lambda _b: self.files_box.choose())
         buttons.append(self.attach_button)
         self.progress = Gtk.Label(hexpand=True, xalign=1, ellipsize=Pango.EllipsizeMode.END)
         self.progress.add_css_class("dim-label")
@@ -261,10 +324,7 @@ class FeedbackPage(Adw.PreferencesPage):
         box.append(buttons)
         self.send_group.add(box)
         self.add(self.send_group)
-        # Files dropped anywhere on the page are attached
-        drop = Gtk.DropTarget.new(Gdk.FileList, Gdk.DragAction.COPY)
-        drop.connect("drop", lambda _t, files, *_: self.attach([f.get_path() for f in files.get_files()]))
-        self.add_controller(drop)
+        self.files_box.accept_drops(self)
 
         context = Adw.PreferencesGroup()
         self.context_row = Adw.ExpanderRow(
@@ -305,41 +365,8 @@ class FeedbackPage(Adw.PreferencesPage):
         if dialog:
             dialog.add_toast(Adw.Toast(title=title, timeout=4))
 
-    # Files
-
-    def choose_files(self):
-        media = Gtk.FileFilter(name="Pictures and Videos")
-        for mime in FILE_FILTER_TYPES:
-            media.add_mime_type(mime)
-        filters = Gio.ListStore.new(Gtk.FileFilter)
-        filters.append(media)
-        dialog = Gtk.FileDialog(title="Attach Files", filters=filters, default_filter=media)
-        dialog.open_multiple(self.get_root(), None, self._chosen)
-
-    def _chosen(self, dialog, result):
-        try:
-            files = dialog.open_multiple_finish(result)
-        except GLib.Error:
-            return  # cancelled
-        self.attach([files.get_item(i).get_path() for i in range(files.get_n_items())])
-
     def attach(self, paths):
-        for path in paths:
-            if not path or path in self.files:
-                continue
-            problem = feedback.check_file(path)
-            if problem:
-                self.toast(problem)
-                continue
-            self.files.append(path)
-            self.files_box.append(FileChip(path, self._remove))
-        self.files_box.set_visible(bool(self.files))
-        return True
-
-    def _remove(self, chip):
-        self.files.remove(chip.path)
-        self.files_box.remove(chip.get_parent())
-        self.files_box.set_visible(bool(self.files))
+        return self.files_box.attach(paths)
 
     # Sending
 
@@ -388,10 +415,7 @@ class FeedbackPage(Adw.PreferencesPage):
 
     def _sent_clear(self):
         self.text.get_buffer().set_text("")
-        for path in list(self.files):
-            self.files.remove(path)
-        self.files_box.remove_all()
-        self.files_box.set_visible(False)
+        self.files_box.clear()
         self._update_send()
 
     # The list
@@ -446,7 +470,8 @@ def message_markup(text):
 
 class Conversation(Adw.NavigationPage):
     """One feedback: the user's text and replies on the right, Claude's on the
-    left, and a box to answer. A reply to a finished feedback opens it
+    left, and a box to answer, with files like a new feedback's (the attach
+    button, or dropped on the page). A reply to a finished feedback opens it
     again: a follow-up Claude takes up in the same conversation."""
 
     def __init__(self, page, number):
@@ -461,15 +486,24 @@ class Conversation(Adw.NavigationPage):
                                 margin_top=12, margin_bottom=12, margin_start=12, margin_end=12)
         self.scroller = Gtk.ScrolledWindow(child=Adw.Clamp(child=self.messages, maximum_size=640), vexpand=True,
                                            hscrollbar_policy=Gtk.PolicyType.NEVER)
+        self.sending = False
         self.answer = Gtk.TextView()
-        self.answer.get_buffer().connect(
-            "changed", lambda *_: self.send_button.set_sensitive(bool(text_of(self.answer).strip())))
+        self.answer.get_buffer().connect("changed", lambda *_: self._update_send())
+        self.files_box = Attachments(page.toast)
+        self.files_box.set_margin_start(12)
+        self.files_box.connect("changed", lambda *_: self._update_send())
+        self.attach_button = Gtk.Button(icon_name="mail-attachment-symbolic", tooltip_text="Attach Files",
+                                        valign=Gtk.Align.END)
+        self.attach_button.add_css_class("circular")
+        self.attach_button.add_css_class("flat")
+        self.attach_button.connect("clicked", lambda _b: self.files_box.choose())
         self.send_button = Gtk.Button(icon_name="mail-send-symbolic", tooltip_text="Answer", sensitive=False,
                                       valign=Gtk.Align.END)
         self.send_button.add_css_class("circular")
         self.send_button.add_css_class("suggested-action")
         self.send_button.connect("clicked", lambda _b: self.send())
         self.answer_bar = Gtk.Box(spacing=8)
+        self.answer_bar.append(self.attach_button)
         answer_box = text_box(self.answer, 24)
         answer_box.set_hexpand(True)
         self.answer_bar.append(answer_box)
@@ -479,14 +513,20 @@ class Conversation(Adw.NavigationPage):
                                      wrap=True, visible=False, margin_start=12)
         self.reopen_hint.add_css_class("caption")
         self.reopen_hint.add_css_class("dim-label")
+        self.progress = Gtk.Label(xalign=0, visible=False, margin_start=12, ellipsize=Pango.EllipsizeMode.END)
+        self.progress.add_css_class("caption")
+        self.progress.add_css_class("dim-label")
         bottom = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, margin_top=6, margin_bottom=12,
                          margin_start=12, margin_end=12)
         bottom.append(self.reopen_hint)
+        bottom.append(self.files_box)
+        bottom.append(self.progress)
         bottom.append(self.answer_bar)
         view = Adw.ToolbarView(content=self.scroller)
         view.add_top_bar(header)
         view.add_bottom_bar(Adw.Clamp(child=bottom, maximum_size=640))
         self.set_child(view)
+        self.files_box.accept_drops(self)
         self.connect("shown", lambda *_: self._focus())
         self.update()
 
@@ -546,21 +586,42 @@ class Conversation(Adw.NavigationPage):
         box.append(meta)
         return box
 
+    def _update_send(self):
+        ready = bool(text_of(self.answer).strip() or self.files_box.files)
+        self.send_button.set_sensitive(ready and not self.sending)
+
     def send(self):
         text = text_of(self.answer).strip()
-        if not text:
+        files = list(self.files_box.files)
+        if not (text or files) or self.sending:
             return
         item = self.item()
         reopen = bool(item) and item.state != "open"
-        self.send_button.set_sensitive(False)
+        self.sending = True
+        self._update_send()
         self.answer.set_sensitive(False)
-        in_background(lambda: feedback.reply(self.number, text, reopen=reopen), self._sent)
+        self.attach_button.set_sensitive(False)
+
+        def progress(message):
+            GLib.idle_add(lambda: self._show_progress(message) or GLib.SOURCE_REMOVE)
+
+        in_background(lambda: feedback.reply(self.number, text, files, reopen=reopen, progress=progress),
+                      self._sent)
+
+    def _show_progress(self, message):
+        if self.sending:
+            self.progress.set_label(message)
+            self.progress.set_visible(True)
 
     def _sent(self, _result, error):
+        self.sending = False
         self.answer.set_sensitive(True)
+        self.attach_button.set_sensitive(True)
+        self.progress.set_visible(False)
         if error is not None:
-            self.send_button.set_sensitive(True)
+            self._update_send()
             self.page.toast(f"Not sent: {error}")
             return
         self.answer.get_buffer().set_text("")
+        self.files_box.clear()
         self.page.monitor.sent(self.number)

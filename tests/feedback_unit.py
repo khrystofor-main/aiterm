@@ -213,6 +213,42 @@ check("…and the watcher shows the reply",
 claude_says(1, "status", "Making it 13 pt")
 check("…In Progress once Claude answers", next(i for i in tracker.poll() if i.number == 1).status == "working")
 
+# Replies with files, like a new feedback's
+files_before = set(state()["files"])
+steps = []
+feedback.reply(1, "Like this:", [file("reply.png"), file("reply.webm")], progress=steps.append)
+data = state()
+new_files = sorted(set(data["files"]) - files_before)
+body = data["comments"]["1"][-1]["body"]
+reply_folder = os.path.dirname(new_files[0]) if new_files else ""
+check("a reply with files uploads them to a folder of its own",
+      len(new_files) == 2 and reply_folder.startswith("feedback/") and reply_folder != folder
+      and all(os.path.dirname(p) == reply_folder for p in new_files), new_files)
+check("…and shows them in the comment, below the text",
+      body.startswith("Like this:\n\n")
+      and f"![reply.png](https://github.com/khrystofor-main/aiterm/raw/feedback-assets/{reply_folder}/reply.png)" in body
+      and f"[reply.webm](https://github.com/khrystofor-main/aiterm/raw/feedback-assets/{reply_folder}/reply.webm)"
+      in body, body)
+check("…and says what it does", "Uploading reply.png (1 of 2)…" in steps and steps[-1] == "Sending…", steps)
+feedback.reply(1, "  ", [file("only.gif")])
+body = state()["comments"]["1"][-1]["body"]
+check("a reply can be files only", body.startswith("![only.gif](") and "\n" not in body, body)
+first = next(i for i in tracker.poll() if i.number == 1)
+check("…and the conversation shows it like the issue's pictures",
+      first.messages[-1].author == "you" and first.messages[-1].text == body, first.messages[-1])
+comments = len(state()["comments"]["1"])
+try:
+    feedback.reply(1, "Bad", [file("notes.txt")])
+    check("a wrong file stops the reply before anything is sent", False)
+except feedback.GhError as error:
+    check("a wrong file stops the reply before anything is sent",
+          "only" in str(error) and len(state()["comments"]["1"]) == comments, str(error))
+try:
+    feedback.reply(1, "  ")
+    check("an empty reply is not sent", False)
+except feedback.GhError:
+    check("an empty reply is not sent", len(state()["comments"]["1"]) == comments)
+
 change(logged_in=False)
 code, out, err = watch("--once")
 check("…and says when gh can't reach GitHub", code == 1 and "gh auth login" in err, (code, out, err))
