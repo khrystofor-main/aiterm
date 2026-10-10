@@ -12,11 +12,14 @@ from aiterm.terminal import Terminal
 BOTH_WAYS = GObject.BindingFlags.BIDIRECTIONAL | GObject.BindingFlags.SYNC_CREATE
 CURSOR_LABELS = {"block": "Block", "ibeam": "I-Beam", "underline": "Underline"}
 VIEW_LABELS = {"terminal": "Terminal", "chat": "Chat"}
+CONTENT_WIDTH = 780
 
 
 class PreferencesDialog(Adw.PreferencesDialog):
     def __init__(self):
-        super().__init__(title="Preferences")
+        # Wide enough for the five page names in the header: narrower, the
+        # page switcher moves to a bar at the bottom
+        super().__init__(title="Preferences", content_width=CONTENT_WIDTH)
         self.settings = settings = Settings.get()
 
         # Appearance

@@ -108,6 +108,14 @@ def _finish_call(connection, result):
         return error
 
 
+def descendants(widget):
+    child = widget.get_first_child()
+    while child:
+        yield child
+        yield from descendants(child)
+        child = child.get_next_sibling()
+
+
 def widgets(box):
     child, out = box.get_first_child(), []
     while child:
@@ -751,6 +759,9 @@ def steps(app):
     dialog = win.get_visible_dialog()
     check("main menu opens preferences", isinstance(dialog, PreferencesDialog))
     if dialog:
+        bars = [w for w in descendants(dialog) if isinstance(w, Adw.ViewSwitcherBar)]
+        check("the page switcher is in the header, not in a bar at the bottom",
+              wait_for(lambda: bars and not any(b.get_reveal() for b in bars), 3), str([b.get_reveal() for b in bars]))
         dialog.palette_row.set_selected(list(PALETTES).index("Tango"))
         check("the dialog changes the palette", settings.palette == "Tango")
         dialog.system_font_row.set_active(True)
