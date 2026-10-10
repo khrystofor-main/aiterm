@@ -36,6 +36,7 @@ import aiterm.window as window_module  # noqa: E402
 from aiterm import animations, dbus_api, effects  # noqa: E402
 from aiterm.application import Application  # noqa: E402
 from aiterm.animations import Animations  # noqa: E402
+from aiterm import feedback_page as feedback_page_module  # noqa: E402
 from aiterm.chat_view import CommandRow, EditRow, markdown_to_pango  # noqa: E402
 from aiterm.palettes import PALETTES  # noqa: E402
 from aiterm.preferences import PreferencesDialog  # noqa: E402
@@ -50,6 +51,10 @@ os.environ["AITERM_CONFIG_DIR"] = CONFIG_DIR
 os.environ["AITERM_AGENT"] = "/bin/bash --norc --noprofile"
 # …and the chat view a fake agy that speaks the same NDJSON (tests/fake_agy.py)
 os.environ["AITERM_CHAT_AGENT"] = f"{sys.executable} {os.path.join(ROOT, 'tests', 'fake_agy.py')}"
+# Feedback goes to a fake GitHub (tests/fake_gh.py), never the real one
+GH_STATE = os.path.join(CONFIG_DIR, "fake-gh.json")
+os.environ["FAKE_GH_STATE"] = GH_STATE
+os.environ["AITERM_GH"] = f"{sys.executable} {os.path.join(ROOT, 'tests', 'fake_gh.py')}"
 results = []
 
 
@@ -269,6 +274,86 @@ def prompt_page(page, term, log):
     term.feed_child(b"true\n")
     check("off brings back the user's own prompt", wait_for(lambda: "$ " in last_line() and "❯" not in last_line()),
           last_line())
+
+
+def gh_state(change=None):
+    with open(GH_STATE) as f:
+        state = json.load(f)
+    if change:
+        change(state)
+        with open(GH_STATE, "w") as f:
+            json.dump(state, f)
+    return state
+
+
+def feedback_page(page):
+    """Preferences → Feedback against the fake GitHub: send with a picture,
+    Claude's question as a notification, the answer from the conversation,
+    and the browser form when gh can't send."""
+    monitor = page.monitor
+    dialog = page.get_ancestor(Adw.PreferencesDialog)
+    dialog.set_visible_page(page)
+    check("the feedback list loads (nothing sent yet)",
+          wait_for(lambda: monitor.loaded and page.rows and page.rows[0].get_title() == "Nothing sent yet", 10),
+          monitor.error)
+    check("the context lists the versions and changed preferences",
+          wait_for(lambda: page.context_items, 10) and page.context_items[0][0] == "Aiterm"
+          and page.context_items[-1][0] == "Changed preferences", page.context_items)
+    check("Send waits for text", not page.send_button.get_sensitive())
+    picture = os.path.join(CONFIG_DIR, "shot.png")
+    with open(picture, "wb") as f:  # a 1×1 PNG
+        f.write(bytes.fromhex("89504e470d0a1a0a0000000d4948445200000001000000010806000000"
+                              "1f15c4890000000d49444154789c6360f80f0000010101005a4d6e2c0000000049454e44ae426082"))
+    notes = os.path.join(CONFIG_DIR, "notes.txt")
+    open(notes, "w").close()
+    page.attach([picture, notes, picture])
+    check("a picture is attached once, a text file is not", page.files == [picture], page.files)
+    page.text.get_buffer().set_text("The tabs are too narrow")
+    check("…then Send can go", page.send_button.get_sensitive())
+    page.send()
+    check("Send makes an issue with the picture",
+          wait_for(lambda: os.path.exists(GH_STATE) and gh_state()["issues"], 15)
+          and "shot.png" in gh_state()["issues"][0]["body"], monitor.error)
+    check("…clears the form", wait_for(lambda: not page.files and not page.text.get_buffer().get_char_count(), 5))
+    check("…and lists it as Sent",
+          wait_for(lambda: monitor.items and monitor.items[0].status == "sent", 10)
+          and page.rows[0].get_title() == "The tabs are too narrow", [r.get_title() for r in page.rows])
+
+    notified = []
+    monitor.notify = lambda item, message: notified.append((item.number, message.kind))
+
+    def question(state):
+        state["comments"]["1"] = [{"id": 7, "body": "<!-- aiterm-feedback: question -->\nHow wide?",
+                                   "user": {"login": "khrystofor-main"}, "created_at": "2026-10-10T13:00:00Z",
+                                   "html_url": "x"}]
+        state["issues"][0].update(comments=1, updated_at="2026-10-10T13:00:00Z")
+
+    gh_state(question)
+    monitor.refresh()
+    check("Claude's question comes as a notification", wait_for(lambda: notified == [(1, "question")], 10),
+          notified)
+    check("…the feedback shows it, the page's icon too",
+          monitor.items[0].status == "question" and page.get_icon_name() == "mail-unread-symbolic")
+    check("the conversation opens", page.open_conversation(1) and page.conversation is not None)
+    conversation = page.conversation
+    check("…with the user's text and Claude's question",
+          len(widgets(conversation.messages)) == 2 and conversation.answer_bar.get_visible())
+    conversation.answer.get_buffer().set_text("Twice as wide")
+    conversation.send()
+    check("an answer from the conversation goes to the issue",
+          wait_for(lambda: gh_state()["comments"]["1"][-1]["body"] == "Twice as wide", 10))
+    check("…and the feedback is In Progress again", wait_for(lambda: monitor.items[0].status == "working", 10))
+    dialog.pop_subpage()
+
+    opened = []
+    feedback_page_module.open_uri = lambda _widget, uri: opened.append(uri)
+    gh_state(lambda state: state.update(push=False))
+    monitor.checked = False
+    page.text.get_buffer().set_text("Without write access")
+    page.send()
+    check("without write access Send opens GitHub's form instead",
+          wait_for(lambda: opened, 10) and "issues/new?title=Without+write+access" in opened[0]
+          and len(gh_state()["issues"]) == 1, opened)
 
 
 def run(app):
@@ -770,6 +855,7 @@ def steps(app):
         check("the dialog turns command approval on", settings.approve_agent_commands)
         animations_page(dialog.animations_page)
         prompt_page(dialog.prompt_page, term, log)
+        feedback_page(dialog.feedback_page)
         dialog.force_close()
     for key in settings.keys():  # back to defaults for the rest of the test
         settings.set_property(key, settings.find_property(key.replace("_", "-")).get_default_value())

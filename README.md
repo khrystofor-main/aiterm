@@ -108,6 +108,8 @@ A failed command's line shakes and keeps a `✗` with its exit code at the end; 
 
 ![A failed command shakes and gets its ✗, output gets a fading stripe, the colors move to the light style](docs/animations.gif)
 
+Preferences → Feedback (or **Send Feedback** in the main menu) is where you say what you don't like: write it, attach screenshots or recordings (PNG, JPEG, GIF, WebP, MP4, WebM, up to 25 MB), and **Send**. It becomes a GitHub issue labelled `feedback`, sent with your own `gh` (no token in the app); the files go to the repository's `feedback-assets` branch and show in the issue. With it go the versions of Aiterm, GTK, libadwaita, VTE and agy, the system, and the preferences you changed — never your terminal's text. Without `gh` or write access, Send opens GitHub's form in the browser instead. Claude picks the issue up (rules: [docs/feedback-agent.md](docs/feedback-agent.md)), and the page lists your feedback with what each waits for — Sent, In Progress, Question for You, Change Ready, Done — and the conversation, answered from the app. A question or a finished change comes as a desktop notification.
+
 Before each command the agent runs, a bar above your terminal shows it with **Run** and **Don't Run**. For fully hands-free use, turn off **Ask Before the Agent Runs a Command** in Preferences → Agent; the `sudo` guard keeps working.
 
 ## Tests
@@ -167,6 +169,7 @@ evals/run.py --update-readme       # and write the table above
 - [x] **v0.6 — evals.** A suite of broken-system scenarios (missing package, typo, broken config, missing permissions) run automatically in an isolated environment. Metrics: solved or not, steps, tokens. Results published in this README. ([plan](docs/v0.6-plan.md), [results](#evals))
 - [x] **v1.0 — release.** A `.deb` package, demo GIF, CI on GitHub Actions running the tests, a tagged release. ([plan](docs/v1.0-plan.md))
 - [x] **v1.1 — file edits as diffs.** `edit_file` / `write_file` in the MCP server; each change shows as a diff in the chat and above the terminal and waits for Apply. ([plan](docs/v1.1-plan.md))
+- [x] **Feedback from the app.** Preferences → Feedback sends what you don't like, with screenshots, as a GitHub issue; Claude makes the change through a PR and answers in the app. ([rules](docs/feedback-agent.md))
 
 ## License
 
