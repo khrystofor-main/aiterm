@@ -19,6 +19,13 @@ from aiterm import APP_ID, OBJECT_PATH, TERMINAL_INTERFACE  # noqa: E402
 # output so far)
 Result = namedtuple("Result", "status folder command output exit_code")
 Command = namedtuple("Command", "command output exit_code seconds")
+# status: applied, rejected (the user clicked Reject), changed (the file
+# changed while the user looked at the diff), busy (another approval is
+# waiting) or failed (detail: why)
+EditResult = namedtuple("EditResult", "status detail")
+
+
+APPROVAL_SECONDS = 3600  # how long a change may wait for Apply
 
 
 class NotInside(Exception):
@@ -61,6 +68,12 @@ class TerminalClient:
     def run(self, command, timeout=60):
         """Types `command` into the terminal and waits up to `timeout` seconds."""
         return Result(*self._call("RunCommand", (command, timeout), "(usu)", "(ssssi)", timeout + 10))
+
+    def propose_edit(self, path, before, after):
+        """Shows the change to the file at the absolute `path` (before: its
+        text, None for a new file) and writes `after` once the user applies it."""
+        return EditResult(*self._call("ProposeEdit", (path, before or "", before is not None, after), "(ussbs)",
+                                      "(ss)", APPROVAL_SECONDS))
 
     def wait(self, timeout=60):
         """Waits for the command that is already running."""

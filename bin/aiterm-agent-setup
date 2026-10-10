@@ -61,7 +61,7 @@ case "${1:-}" in
       echo "Backed up the old $PLUGIN"
     fi
     ln -sfn "$ROOT/agy-plugin" "$PLUGIN"
-    echo "✓ agy plugin: $PLUGIN (tools: read_terminal, run_command, wait_for_command, get_cwd)"
+    echo "✓ agy plugin: $PLUGIN (tools: read_terminal, run_command, wait_for_command, get_cwd, edit_file, write_file)"
     drop_rules
     mkdir -p "$(dirname "$AGY_SETTINGS")"
     [ -s "$AGY_SETTINGS" ] || echo '{}' > "$AGY_SETTINGS"

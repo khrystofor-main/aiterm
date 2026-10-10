@@ -79,6 +79,10 @@ echo "animations (presets and effects, no window)"
 "$ROOT/tests/animations_unit.py"; code=$?
 if [ $code = 0 ]; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
 
+echo "file edits (plans, diffs, safe writes)"
+"$ROOT/tests/edits_unit.py"; code=$?
+if [ $code = 0 ]; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
+
 echo "MCP server"
 "$ROOT/tests/mcp_protocol.py"; code=$?
 if [ $code = 0 ]; then pass=$((pass + 1)); else fail=$((fail + 1)); fi

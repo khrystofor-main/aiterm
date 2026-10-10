@@ -20,10 +20,10 @@ The agent is [Antigravity CLI](https://antigravity.google/docs/cli/install) (`ag
 │  bash + shell integration → command log  │                              │
 └──────────────────▲───────────────────────┴───────────────┬──────────────┘
                    │ D-Bus: ReadCommands / ReadScreen /    │ MCP over stdio
-                   │        RunCommand / Wait              ▼
+                   │        RunCommand / Wait / ProposeEdit▼
                    │                         ┌───────────────────────────┐
                    └─────────────────────────│ aiterm-mcp: read_terminal,│
-                                             │ run_command, get_cwd, …   │
+                                             │ run_command, edit_file, … │
                                              └───────────────────────────┘
                                          agy plugin: MCP server + rules
 ```
@@ -39,10 +39,11 @@ The agent is [Antigravity CLI](https://antigravity.google/docs/cli/install) (`ag
   | `run_command` | Types a command into your shell, waits for the command log to report it, returns the output, exit code and folder. Refuses to type while you are typing or a program is running, handles timeouts and commands that wait for input, trims huge outputs |
   | `wait_for_command` | Waits for the command that is already running (after a timeout, or one you started) |
   | `get_cwd` | The folder of your terminal |
+  | `edit_file` / `write_file` | Change part of a file, or create / rewrite one. The server works out the change, you see it as a diff and click **Apply**; the app writes the file only then, and only if it hasn't changed meanwhile |
 
   How to use each tool well (check the exit code, no pagers, you type `sudo` passwords) is in the tool descriptions, which the model reads with the tools.
-- **The agy plugin** (`agy-plugin/`) bundles the server with a few rules (`rules/AGENTS.md`): run shell commands with `run_command`, not the agent's own hidden shell, and don't change your settings unasked. The rules are on only while the plugin is, and your own `~/.gemini/GEMINI.md` stays yours.
-- **Two views of the agent.** *Terminal* runs agy's own interface in the panel. *Chat* is drawn by the app (`src/aiterm/chat_view.py`): messages, collapsible command blocks with output and exit code, Run / Don't Run buttons, and the tokens each turn took. Behind it, `agy --input-format stream-json --output-format stream-json` keeps the conversation open and streams typed events (`src/aiterm/chat.py`). Pick one in Preferences → Agent.
+- **The agy plugin** (`agy-plugin/`) bundles the server with a few rules (`rules/AGENTS.md`): run shell commands with `run_command`, not the agent's own hidden shell, change files with `edit_file` / `write_file`, and don't change your settings unasked. The rules are on only while the plugin is, and your own `~/.gemini/GEMINI.md` stays yours.
+- **Two views of the agent.** *Terminal* runs agy's own interface in the panel. *Chat* is drawn by the app (`src/aiterm/chat_view.py`): messages, collapsible command blocks with output and exit code, Run / Don't Run buttons, file changes as diffs with Apply / Reject, and the tokens each turn took. Behind it, `agy --input-format stream-json --output-format stream-json` keeps the conversation open and streams typed events (`src/aiterm/chat.py`). Pick one in Preferences → Agent.
 - **`aiterm-left` / `aiterm-run`** are the same API on the command line, for scripts and debugging.
 
 ## Safety model
@@ -50,6 +51,7 @@ The agent is [Antigravity CLI](https://antigravity.google/docs/cli/install) (`ag
 | Risk | What aiterm does |
 |---|---|
 | Agent runs a command you didn't want | Each command waits for **Run** in a bar above your terminal (**Don't Run** declines). The check is in the app, so no prompt or agent setting can skip it; turn it off in Preferences → Agent for hands-free use |
+| Agent changes a file you didn't want changed | Each change waits for **Apply**, shown as a diff in the chat and above your terminal; nothing is written before. A file you edited meanwhile is left alone. Changes agy makes with its own file tools are still shown in the chat ([plan](docs/v1.1-plan.md)) |
 | Agent types over your half-written command | `run_command` checks that the prompt line is empty and no program is running; otherwise it refuses and tells the agent why |
 | Agent runs `sudo` behind your back | Before any agent command with `sudo`, cached credentials are dropped (`sudo -K`), so **every** such command needs your password, typed in your terminal |
 | Agent hangs on `less`, `vim`, `[Y/n]` | Timeouts with partial output; the tool descriptions ban pagers and full-screen programs |
@@ -57,7 +59,7 @@ The agent is [Antigravity CLI](https://antigravity.google/docs/cli/install) (`ag
 | Agent edits your configs "to help" | The plugin's rules forbid changing system/user settings without explicit consent |
 | You don't see what the agent does | Every shell command runs in your terminal, visible and in your history |
 
-Rules and tool descriptions are instructions to a model, not hard guarantees; the approval bar, the `sudo` guard and the busy-terminal checks are enforced in code.
+Rules and tool descriptions are instructions to a model, not hard guarantees; the approval bar, the `sudo` guard and the busy-terminal checks are enforced in code. So is Apply for `edit_file` / `write_file`, but agy's own file tools write without asking: the rules steer the agent away from them.
 
 ## Install
 
@@ -162,6 +164,7 @@ evals/run.py --update-readme       # and write the table above
 - [x] **v0.5 — native chat UI** *(optional)*. The agent panel drawn by the app instead of agy's TUI: messages, collapsible command blocks, approval buttons, driven through `agy --output-format stream-json`. ([plan](docs/v0.5-plan.md))
 - [x] **v0.6 — evals.** A suite of broken-system scenarios (missing package, typo, broken config, missing permissions) run automatically in an isolated environment. Metrics: solved or not, steps, tokens. Results published in this README. ([plan](docs/v0.6-plan.md), [results](#evals))
 - [x] **v1.0 — release.** A `.deb` package, demo GIF, CI on GitHub Actions running the tests, a tagged release. ([plan](docs/v1.0-plan.md))
+- [x] **v1.1 — file edits as diffs.** `edit_file` / `write_file` in the MCP server; each change shows as a diff in the chat and above the terminal and waits for Apply. ([plan](docs/v1.1-plan.md))
 
 ## License
 

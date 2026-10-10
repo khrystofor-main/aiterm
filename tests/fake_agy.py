@@ -5,6 +5,10 @@ in the smoke test's chat: the same NDJSON in and out, no model, no login.
 Each message is a script:
     run: COMMAND   runs COMMAND with the real run_command tool (mcp_server.py),
                    through the app, approval included
+    edit: PATH|OLD|NEW
+                   changes the file with the real edit_file tool, approval included
+    native-edit: PATH
+                   reports a change by agy's own replace_file_content (writes nothing)
     wait           takes 30 s, so the test can press Stop
     crash          exits with an error
     anything else  answers "You said: …"
@@ -35,6 +39,21 @@ def update(step_type, state, **fields):
                                      "state": state, "step_type": step_type, **fields})
 
 
+def terminal_tool(tool, handler, **arguments):
+    """A call of an aiterm tool, as agy reports it, made for real."""
+    global step
+    info = {"name": "call_mcp_tool", "parameters": {
+        "ServerName": "aiterm_terminal", "ToolName": tool, "Arguments": arguments}}
+    update("tool", "ACTIVE", tool_name="call_mcp_tool", tool_info=info)
+    try:
+        output, _ = handler(TerminalClient(), **arguments)
+        update("tool", "DONE", tool_name="call_mcp_tool", tool_info={**info, "output": output})
+    except mcp_server.ToolError as error:
+        update("tool", "ERROR", tool_name="call_mcp_tool",
+               tool_info={**info, "output": str(error), "error": {"type": "TOOL_ERROR", "message": str(error)}})
+    step += 1
+
+
 emit("init", conversation_id=conversation, init={"cwd": os.getcwd(), "tools": ["call_mcp_tool"]})
 for line in sys.stdin:
     text = json.loads(line)["message"]["content"]
@@ -50,18 +69,18 @@ for line in sys.stdin:
         update("tool", "DONE", tool_name="view_file",
                tool_info={"name": "view_file", "parameters": {"AbsolutePath": schema}, "output": "1 line"})
         step += 1
-        info = {"name": "call_mcp_tool", "parameters": {
-            "ServerName": "aiterm_terminal", "ToolName": "run_command", "Arguments": {"command": text[5:]}}}
-        update("tool", "ACTIVE", tool_name="call_mcp_tool", tool_info=info)
-        try:
-            output, _ = mcp_server.run_command(TerminalClient(), command=text[5:], timeout=20)
-            update("tool", "DONE", tool_name="call_mcp_tool", tool_info={**info, "output": output})
-        except mcp_server.ToolError as error:
-            update("tool", "ERROR", tool_name="call_mcp_tool",
-                   tool_info={**info, "output": str(error), "error": {"type": "TOOL_ERROR", "message": str(error)}})
-        step += 1
+        terminal_tool("run_command", mcp_server.run_command, command=text[5:], timeout=20)
         update("tool", "DONE", tool_name="view_file", tool_info={"name": "view_file",
                "parameters": {"AbsolutePath": "/etc/hostname"}, "output": "1 line"})
+        step += 1
+    if text.startswith("edit: "):
+        path, old, new = text[6:].split("|")
+        terminal_tool("edit_file", mcp_server.edit_file, path=path, old_text=old, new_text=new)
+    if text.startswith("native-edit: "):
+        update("tool", "DONE", tool_name="replace_file_content", tool_info={
+            "name": "replace_file_content", "output": "Edited", "parameters": {
+                "TargetFile": text[13:], "TargetContent": "old line", "ReplacementContent": "new line",
+                "StartLine": 4}})
         step += 1
     for delta in ("You said: ", f"**{text}**", "\n\n```\ncode block\n```\n"):
         update("agent_response", "ACTIVE", text_delta=delta)

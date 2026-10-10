@@ -18,7 +18,7 @@ import sys
 import threading
 import time
 
-from aiterm import VERSION
+from aiterm import VERSION, edits
 from aiterm.client import NotInside, TerminalClient, Unreachable, format_command
 
 # Newest first; an older client gets its own version back if we know it
@@ -30,7 +30,9 @@ INSTRUCTIONS = """\
 The user works in aiterm: their own shell is on the left, you are in the panel \
 on the right. These tools work in that shell, in plain sight: run shell \
 commands with run_command, not with your own hidden shell, and read what the \
-user did with read_terminal. The user sees every command and its output."""
+user did with read_terminal. The user sees every command and its output. \
+Change files with edit_file and write_file: the user sees each change as a \
+diff and applies it."""
 
 TOOLS = [
     {
@@ -110,6 +112,50 @@ TOOLS = [
         "inputSchema": {"type": "object", "properties": {}},
         "annotations": {"readOnlyHint": True, "openWorldHint": False},
     },
+    {
+        "name": "edit_file",
+        "title": "Change a file",
+        "description": (
+            "Replaces `old_text` with `new_text` in a text file. The user sees the change as a diff and "
+            "may be asked to apply it; nothing is written until then. Use it for every change to an "
+            "existing file. Read the file first: `old_text` must match it exactly, with its indentation "
+            "and line breaks, and only once (include a few lines around it if needed), unless "
+            "`replace_all` is set. To make several changes in one file, call it once per change. "
+            "Relative paths are relative to the terminal's folder. If the user rejects the change, do "
+            "not make it another way; ask the user what they want instead."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "The file, absolute or relative to the terminal's folder."},
+                "old_text": {"type": "string", "description": "The exact text to replace."},
+                "new_text": {"type": "string", "description": "The text to put in its place."},
+                "replace_all": {"type": "boolean", "default": False,
+                                "description": "Replace every occurrence of old_text, not just one."},
+            },
+            "required": ["path", "old_text", "new_text"],
+        },
+        "annotations": {"destructiveHint": True, "openWorldHint": False},
+    },
+    {
+        "name": "write_file",
+        "title": "Create or rewrite a file",
+        "description": (
+            "Writes `content` to a text file: creates it (and its folders) or replaces all of it. The "
+            "user sees the change as a diff and may be asked to apply it; nothing is written until then. "
+            "For a change to part of an existing file use edit_file instead. Relative paths are relative "
+            "to the terminal's folder."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "The file, absolute or relative to the terminal's folder."},
+                "content": {"type": "string", "description": "The whole new text of the file."},
+            },
+            "required": ["path", "content"],
+        },
+        "annotations": {"destructiveHint": True, "openWorldHint": False},
+    },
 ]
 
 
@@ -151,9 +197,65 @@ def get_cwd(client):
     return folder, {"folder": folder}
 
 
+def edit_file(client, path=None, old_text=None, new_text=None, replace_all=False):
+    _strings(path=path, old_text=old_text, new_text=new_text)
+    if not isinstance(replace_all, bool):
+        raise ToolError("`replace_all` must be true or false.")
+    path = _path(client, path)
+    return _propose(client, path, *_plan(edits.plan_edit, path, old_text, new_text, replace_all))
+
+
+def write_file(client, path=None, content=None):
+    _strings(path=path, content=content)
+    path = _path(client, path)
+    return _propose(client, path, *_plan(edits.plan_write, path, content))
+
+
 HANDLERS = {"read_terminal": read_terminal, "run_command": run_command,
-            "wait_for_command": wait_for_command, "get_cwd": get_cwd}
+            "wait_for_command": wait_for_command, "get_cwd": get_cwd,
+            "edit_file": edit_file, "write_file": write_file}
 SCHEMAS = {tool["name"]: tool["inputSchema"] for tool in TOOLS}
+
+
+def _strings(**values):
+    for name, value in values.items():
+        if not isinstance(value, str):
+            raise ToolError(f"`{name}` is required and must be a string.")
+    if not values["path"].strip():
+        raise ToolError("`path` is empty.")
+
+
+def _path(client, path):
+    """Absolute; a relative one from the terminal's folder."""
+    folder = None
+    if not os.path.isabs(os.path.expanduser(path)):
+        folder, _ = client.read_commands(1)
+    return edits.resolve(path, folder)
+
+
+def _plan(plan, *args):
+    try:
+        return plan(*args)
+    except edits.EditError as error:
+        raise ToolError(str(error)) from None
+
+
+def _propose(client, path, before, after):
+    if before == after:
+        return f"{path} already has this text; nothing to change.", {"status": "unchanged", "path": path}
+    added, removed = edits.counts(edits.diff(before, after, path))
+    result = client.propose_edit(path, before, after)
+    structured = {"status": result.status, "path": path, "added": added, "removed": removed}
+    if result.status == "applied":
+        what = "Created" if before is None else "Changed"
+        return f"{what} {path} (+{added} -{removed} lines).", structured
+    if result.status == "rejected":
+        raise ToolError(f"The user rejected the change to {path}. Nothing was written. Do not make it "
+                        "another way; ask the user what they want instead.")
+    if result.status == "busy":
+        raise ToolError("Another change or command is waiting for the user's approval. Nothing was written. "
+                        "Wait for it, then retry.")
+    raise ToolError(result.detail or f"Could not write {path}.")
 
 
 def _int(value, name, low, high):

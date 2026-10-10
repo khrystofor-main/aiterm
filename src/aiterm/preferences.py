@@ -98,6 +98,16 @@ class PreferencesDialog(Adw.PreferencesDialog):
         )
         settings.bind_property("approve-agent-commands", self.approve_row, "active", BOTH_WAYS)
         commands.add(self.approve_row)
+        files = Adw.PreferencesGroup(
+            title="Files",
+            description="The agent changes files through Aiterm, which shows each change as a diff.",
+        )
+        self.approve_edits_row = Adw.SwitchRow(
+            title="Ask Before the Agent Changes a File",
+            subtitle="Each change waits for Apply. Changes agy makes with its own tools are shown but not asked",
+        )
+        settings.bind_property("approve-agent-edits", self.approve_edits_row, "active", BOTH_WAYS)
+        files.add(self.approve_edits_row)
         panel = Adw.PreferencesGroup(title="Panel")
         self.view_row = combo_row("View", list(AGENT_VIEWS), settings, "agent_view", VIEW_LABELS)
         self.view_row.set_subtitle("Terminal: agy's own interface, with its commands and settings. "
@@ -106,6 +116,7 @@ class PreferencesDialog(Adw.PreferencesDialog):
         agent = Adw.PreferencesPage(title="Agent", icon_name="chat-message-new-symbolic")
         agent.add(panel)
         agent.add(commands)
+        agent.add(files)
         self.add(agent)
 
         self.animations_page = AnimationsPage()
