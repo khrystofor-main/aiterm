@@ -944,6 +944,8 @@ def steps(app):
     diff_text = cards()[0].diff.label.get_text() if cards() else ""
     check("…the diff with the lines around the change",
           "-two" in diff_text and "+2" in diff_text and " one" in diff_text, repr(diff_text))
+    check("…numbered: old and new line on the left", "2   -two" in diff_text and "  2 +2" in diff_text,
+          repr(diff_text))
     check("…and Apply / Reject while it waits", wait_for(lambda: cards()[0].buttons.get_visible())
           and win.approval.pending and win.approval.kind == "edit")
     cards()[0].apply_button.emit("clicked")

@@ -1,5 +1,5 @@
 """A diff drawn in the app: added lines green, removed lines red, the
-hunk headers quiet. Used by the chat's edit cards (chat_view.py) and the
+hunk headers quiet, each line's old and new number on the left. Used by the chat's edit cards (chat_view.py) and the
 approval bar (approval.py); the diff itself comes from edits.diff().
 """
 
@@ -19,22 +19,32 @@ STYLES = {
 }
 
 
-def body(lines):
-    """The diff without its ---/+++ header lines."""
-    return [line for line in lines if not line.startswith(("--- ", "+++ "))]
+def gutter(rows):
+    """For each row of edits.numbered(), its old and new line numbers as
+    text, `12 13 `, blank where a side has none; nothing at all when the
+    diff does not say where it is in the file."""
+    numbers = [n for old, new, _ in rows for n in (old, new) if n is not None]
+    if not numbers:
+        return [""] * len(rows)
+    width = len(str(max(numbers)))
+    def cell(n):
+        return str(n).rjust(width) if n is not None else " " * width
+    return [f"{cell(old)} {cell(new)} " for old, new, _ in rows]
 
 
 def markup(lines):
-    """Pango markup for the diff's lines."""
-    lines = body(lines)
-    hidden = len(lines) - MAX_LINES
-    lines = lines[:MAX_LINES]
-    width = min(max((len(line) for line in lines), default=0), WIDE)
+    """Pango markup for the diff's lines, with line numbers on the left."""
+    rows = edits.numbered(lines)
+    hidden = len(rows) - MAX_LINES
+    rows = rows[:MAX_LINES]
+    numbers = gutter(rows)
+    width = min(max((len(line) for _, _, line in rows), default=0), WIDE)
     out = []
-    for line in lines:
+    for number, (_, _, line) in zip(numbers, rows):
         text = html.escape(line.ljust(width), quote=False)
         style = STYLES.get(line[:1])
-        out.append(f"<span {style}>{text}</span>" if style else text)
+        text = f"<span {style}>{text}</span>" if style else text
+        out.append(f'<span alpha="45%">{number}</span>{text}' if number else text)
     if hidden > 0:
         out.append(f'<span alpha="55%">… {hidden} more lines</span>')
     return "\n".join(out)
