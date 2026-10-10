@@ -20,7 +20,7 @@ Only issues and comments by the repository owner count; anyone else's are ignore
 
 ## Each feedback
 
-Read the issue with `gh issue view <n> --json title,body,comments` (`--comments` fails while GitHub retires classic Projects). The body has the user's text, links to their screenshots and recordings (on the `feedback-assets` branch: download and look at them) and a folded "Sent from Aiterm" table: versions and the preferences they changed.
+Read the issue with `gh issue view <n> --json title,body,comments` (`--comments` fails while GitHub retires classic Projects). The body has the user's text, links to their screenshots and recordings (on the `feedback-assets` branch: download and look at them) and a folded "Sent from Aiterm" table: versions and the preferences they changed. The user's replies can carry files too, linked the same way below their text (or alone): look at those as well.
 
 - **Clear** ("the font is small", "the button is in the wrong place"): comment how you understood it (`status`), make the change, and take it to merge without asking.
 - **Ambiguous, or it touches the architecture**: comment a `question` with numbered options and your recommendation, and wait. The app shows the question as a notification and the user answers from Preferences → Feedback; the answer wakes the watcher.

@@ -344,6 +344,7 @@ def feedback_page(page):
     check("Send makes an issue with the picture",
           wait_for(lambda: os.path.exists(GH_STATE) and gh_state()["issues"], 15)
           and "shot.png" in gh_state()["issues"][0]["body"], monitor.error)
+    issue_folder = next(path for path in gh_state()["files"] if path.endswith("/shot.png")).split("/")[1]
     check("…clears the form", wait_for(lambda: not page.files and not page.text.get_buffer().get_char_count(), 5))
     check("…and lists it as Sent",
           wait_for(lambda: monitor.items and monitor.items[0].status == "sent", 10)
@@ -374,6 +375,21 @@ def feedback_page(page):
           wait_for(lambda: gh_state()["comments"]["1"][-1]["body"] == "Twice as wide", 10))
     check("…and the feedback is In Progress again", wait_for(lambda: monitor.items[0].status == "working", 10))
     check("…without the reopen hint while it is open", not conversation.reopen_hint.get_visible())
+    check("the answer bar has an attach button",
+          conversation.attach_button.get_parent() is conversation.answer_bar and not conversation.files_box.get_visible())
+    conversation.files_box.attach([picture, notes])
+    check("…a picture attached to the answer shows as a chip, a text file does not",
+          conversation.files_box.files == [picture] and conversation.files_box.get_visible()
+          and isinstance(conversation.files_box.get_child_at_index(0).get_child(), feedback_page_module.FileChip))
+    check("…and a picture alone can be sent", conversation.send_button.get_sensitive())
+    conversation.send()
+    check("…it goes to the issue as a picture in the comment",
+          wait_for(lambda: gh_state()["comments"]["1"][-1]["body"].startswith("![shot.png](https://"), 10)
+          and any(path.endswith("/shot.png") and path.split("/")[1] != issue_folder
+                  for path in gh_state()["files"]), gh_state()["comments"]["1"][-1]["body"])
+    check("…and sending clears the chips",
+          wait_for(lambda: not conversation.files_box.files and not conversation.files_box.get_visible()
+                   and not conversation.send_button.get_sensitive(), 5))
 
     def finished(state):
         state["comments"]["1"].append({"id": 9, "body": "<!-- aiterm-feedback: done -->\nWider now",

@@ -247,20 +247,29 @@ def issue_body(text, files_markdown, context_md):
     return "\n\n".join(parts) + "\n"
 
 
-def send(text, paths, context_md, progress=lambda message: None):
-    """Creates the issue with its files; returns (number, url)."""
+def upload_files(paths, progress=lambda message: None):
+    """Checks every file, then commits them to the assets branch in a folder
+    of their own (one per message); returns the Markdown that shows them.
+    A file that can't go stops it before anything is uploaded."""
     for path in paths:
         problem = check_file(path)
         if problem:
             raise GhError(problem)
+    if not paths:
+        return []
+    progress("Uploading files…")
+    ensure_assets_branch()
+    folder = f"feedback/{datetime.date.today().isoformat()}-{uuid.uuid4().hex[:6]}"
     files = []
-    if paths:
-        progress("Uploading files…")
-        ensure_assets_branch()
-        folder = f"feedback/{datetime.date.today().isoformat()}-{uuid.uuid4().hex[:6]}"
-        for i, path in enumerate(paths, 1):
-            progress(f"Uploading {os.path.basename(path)} ({i} of {len(paths)})…")
-            files.append(upload(path, folder))
+    for i, path in enumerate(paths, 1):
+        progress(f"Uploading {os.path.basename(path)} ({i} of {len(paths)})…")
+        files.append(upload(path, folder))
+    return files
+
+
+def send(text, paths, context_md, progress=lambda message: None):
+    """Creates the issue with its files; returns (number, url)."""
+    files = upload_files(paths, progress)
     progress("Creating the issue…")
     issue = api(f"repos/{REPO}/issues", "POST", {
         "title": title_from(text), "body": issue_body(text, files, context_md), "labels": [LABEL],
@@ -277,13 +286,24 @@ def browser_url(text, context_md, limit=6000):
     return f"https://github.com/{REPO}/issues/new?{query}"
 
 
-def reply(number, text, reopen=False):
-    """Comments on the feedback. On a closed one (`reopen`) the issue opens
-    again first, so the reply is a follow-up Claude picks up (the watcher
-    reads only open issues)."""
+def comment_body(text, files_markdown):
+    """A reply: its text, then its files."""
+    return "\n\n".join(part for part in [text.strip(), *files_markdown] if part)
+
+
+def reply(number, text, paths=(), reopen=False, progress=lambda message: None):
+    """Comments on the feedback, with files like a new feedback's (text, files
+    or both). On a closed one (`reopen`) the issue opens again first, so the
+    reply is a follow-up Claude picks up (the watcher reads only open issues)."""
+    files = upload_files(list(paths), progress)
+    body = comment_body(text, files)
+    if not body:
+        raise GhError("Nothing to send")
     if reopen:
+        progress("Reopening…")
         api(f"repos/{REPO}/issues/{number}", "PATCH", {"state": "open"})
-    api(f"repos/{REPO}/issues/{number}/comments", "POST", {"body": text.strip()})
+    progress("Sending…")
+    api(f"repos/{REPO}/issues/{number}/comments", "POST", {"body": body})
 
 
 # Reading
