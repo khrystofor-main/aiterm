@@ -81,6 +81,13 @@ items = feedback.context({"GTK": "4.20.1"}, {"palette": "Tango"})
 names = [name for name, _ in items]
 check("the context has the versions and the changed preferences",
       names == ["Aiterm", "GTK", "agy", "System", "Changed preferences"] and items[-1][1] == "palette = Tango", items)
+from aiterm.settings import Settings  # noqa: E402
+prefs = Settings()
+prefs.palette, prefs.prompt_user_host, prefs.window_width = "Tango", "Lex Secret", 1234
+changed = feedback.changed_settings(prefs)
+check("changed preferences leave out window state and the prompt's own text",
+      changed.get("palette") == "Tango" and changed.get("prompt_user_host") == "(set)"
+      and "window_width" not in changed, changed)
 context_md = feedback.context_markdown(items)
 check("…in a block people can fold", context_md.startswith("<!-- aiterm-feedback: context -->\n<details>"))
 check("…and the app hides it in its own view", feedback.clean(f"Hi\n\n{context_md}\n") == "Hi")

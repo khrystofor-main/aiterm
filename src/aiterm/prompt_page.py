@@ -1,6 +1,7 @@
 """Preferences → Prompt: Aiterm's own bash prompt (prompt.py). A switch turns
 it on, a preview shows it in the terminal's palette, and a row per segment
-turns it on or off, picks its color and moves it."""
+turns it on or off, picks its color and moves it. User and Host can show
+the user's own text instead."""
 
 from gi.repository import Adw, GObject, Gtk
 
@@ -68,6 +69,13 @@ class PromptPage(Adw.PreferencesPage):
         self.rows = []
         self.add(self.segments)
 
+        user_host = Adw.PreferencesGroup(
+            description="Shown instead of user@host, emoji too. Empty: user@host")
+        self.user_host_row = Adw.EntryRow(title="User and Host Text")
+        settings.bind_property("prompt-user-host", self.user_host_row, "text", BOTH_WAYS)
+        user_host.add(self.user_host_row)
+        self.add(user_host)
+
         style = Adw.PreferencesGroup(title="Style")
         self.symbol_row = Adw.ComboRow(
             title="Symbol", model=Gtk.StringList.new([prompt.SYMBOLS[s][0] for s in PROMPT_SYMBOLS]))
@@ -83,7 +91,7 @@ class PromptPage(Adw.PreferencesPage):
         style.add(bold)
         self.add(style)
 
-        for group in (self.segments, style):
+        for group in (self.segments, user_host, style):
             settings.bind_property("custom-prompt", group, "sensitive", GObject.BindingFlags.SYNC_CREATE)
 
         self._fill_segments()
@@ -141,4 +149,4 @@ class PromptPage(Adw.PreferencesPage):
         self.preview.set_css_classes(["monospace", "prompt-preview", _css_class(palette.name, dark)])
         self.preview.set_markup(prompt.preview_markup(
             settings.prompt_segments, settings.prompt_symbol, settings.prompt_two_lines,
-            settings.prompt_bold, palette, dark))
+            settings.prompt_bold, palette, dark, settings.prompt_user_host))

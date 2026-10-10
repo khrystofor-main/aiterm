@@ -52,6 +52,8 @@ class Settings(GObject.Object):
     prompt_symbol = GObject.Property(type=str, default="dollar")
     prompt_two_lines = GObject.Property(type=bool, default=False)
     prompt_bold = GObject.Property(type=bool, default=True)
+    # Shown instead of user@host; empty: user@host
+    prompt_user_host = GObject.Property(type=str, default="")
     # Not in the dialog: the size of the last window closed, for the next one
     window_width = GObject.Property(type=int, default=960, minimum=200, maximum=20_000)
     window_height = GObject.Property(type=int, default=600, minimum=150, maximum=20_000)

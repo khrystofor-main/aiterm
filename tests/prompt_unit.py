@@ -47,6 +47,20 @@ check("the preview shows the segments on in the palette's colors, then the symbo
       markup == '<span foreground="#1c71d8">~/projects/aiterm</span>\n<span foreground="#ffffff">❯</span> ',
       markup)
 
+markup = prompt.preview_markup("user_host:green", "dollar", False, False, PALETTES["GNOME"], True, "🚀 <me>")
+check("…the user's own text instead of user@host, escaped for Pango",
+      "🚀 &lt;me&gt;</span>" in markup and "lex@" not in markup, markup)
+
+# The user's own text instead of user@host
+check("no text: user@host", r"\u@\h" in prompt.build_ps1("user_host:green", user_host="  "))
+ps1 = prompt.build_ps1("user_host:green", user_host="khrystofor")
+check("the text replaces user@host", "khrystofor" in ps1 and r"\u@\h" not in ps1, ps1)
+ps1 = prompt.build_ps1("user_host:green", user_host="🦊 fox")
+check("emoji stay outside \\[ \\], so bash counts their width", r"m\]🦊 fox\[" in ps1, ps1)
+check("control characters go", prompt.clean_text("a\nb\x1b[31mc\u2028") == "ab[31mc",
+      repr(prompt.clean_text("a\nb\x1b[31mc\u2028")))
+check("…emoji joiners stay", prompt.clean_text("👨\u200d👩") == "👨\u200d👩")
+
 
 # The file and the shell
 settings = Settings.get()
@@ -85,6 +99,17 @@ check("…and no branch outside a repository", "\n/ (.venv) ❯ " in out, out)
 settings.prompt_two_lines = True
 out = prompts("true\n")
 check("the symbol on its own line", "~ \n❯ " in out, repr(out))
+settings.prompt_two_lines = False
+TRICKY = r"🦊 a\b \u $HOME $(touch pwned2) `touch pwned3` \[x\] %d \\"
+settings.prompt_segments = "user_host:green,cwd:blue"
+settings.prompt_user_host = TRICKY
+out = prompts("true\n")
+check("bash shows the user's own text as it is", f"\n{TRICKY} ~ ❯ " in out, repr(out))
+check("…without expanding or running what it holds",
+      not any(os.path.exists(os.path.join(home, f)) for f in ("pwned2", "pwned3")))
+settings.prompt_user_host = ""
+check("…and user@host again when it is empty", re.search(r"\n\S+@\S+ ~ ❯ ", prompts("true\n")),
+      prompts("true\n"))
 settings.custom_prompt = False
 check("turning it off removes the file", not os.path.exists(prompt.prompt_file()))
 check("…and bash shows the user's own prompt", "own> " in prompts("true\n"), prompts("true\n"))
