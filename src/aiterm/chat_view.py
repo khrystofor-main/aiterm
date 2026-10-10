@@ -16,6 +16,9 @@ blocks open smoothly and show a running bar, three dots pulse while the
 agent works, the view glides to new messages unless the user scrolled up
 (then a "New messages" button appears), and a command the agent runs in
 the terminal lights up its block in the same color as its output's stripe.
+
+What was said in the Terminal view comes from agy's own transcript
+(agy_history.py) and is drawn at once, without animations (replay).
 """
 
 import html
@@ -24,7 +27,7 @@ import re
 
 from gi.repository import Adw, Gdk, GLib, Gtk, Pango
 
-from aiterm import animations, edits, markdown
+from aiterm import agy_history, animations, edits, markdown
 from aiterm.diff_view import DiffView, summary
 from aiterm.palettes import DEFAULT_PALETTE, PALETTES
 from aiterm.settings import Settings
@@ -395,6 +398,20 @@ def tool_text(name, info):
     return f"{verb} {value}" if value else verb
 
 
+def history_tool_text(name, parameters):
+    """A tool call from the transcript (agy_history), as one quiet line:
+    aiterm's terminal tools say what they did there."""
+    if parameters.get("ServerName") == TERMINAL_SERVER:
+        tool = parameters.get("ToolName", "")
+        arguments = parameters.get("Arguments") if isinstance(parameters.get("Arguments"), dict) else {}
+        path = arguments.get("path")
+        if tool == "run_command":
+            return f"Ran in your terminal: $ {arguments.get('command', '')}"
+        if tool in EDIT_TOOLS and isinstance(path, str):
+            return f"{'Edited' if tool == 'edit_file' else 'Wrote'} {os.path.basename(path)}"
+    return tool_text(name, {"parameters": parameters})
+
+
 def planned_edit(tool, arguments):
     """(path, diff) for an edit_file / write_file call, from its arguments
     alone, until the app sends the real one (ProposeEdit)."""
@@ -540,6 +557,11 @@ class ChatView(Gtk.Box):
         self.approval = approval
         self.force_animations = force_animations
         self.steps = {}  # step index -> (row, accumulated text)
+        # The last step of agy's transcript this chat shows or saw happen
+        # (agy_history), so that coming back from the Terminal view shows
+        # only what was said there; None: not known
+        self.history_index = None
+        self.continued_note = None  # "Continuing the conversation…", until its messages show
         self._linked = None  # (command, time) the agent ran before its block showed
         self._proposed = None  # (path, diff, time) a change proposed before its card showed
         self._applied = None  # (path, (before, after), time) a change written before its card showed
@@ -634,8 +656,45 @@ class ChatView(Gtk.Box):
 
     def add_note(self, text):
         """A quiet line in the conversation, from the app rather than agy."""
-        self._add(_label(text, css=("caption", "dim-label"), selectable=False, xalign=0.5,
-                         justify=Gtk.Justification.CENTER))
+        return self._add(_label(text, css=("caption", "dim-label"), selectable=False, xalign=0.5,
+                                justify=Gtk.Justification.CENTER))
+
+    def replay(self, steps, at_start=False):
+        """Steps from agy's transcript (agy_history.read_steps): what was said
+        while the chat was not there, drawn at once and finished. At the end
+        of the chat, or before everything in it (`at_start`)."""
+        after = None
+        for step in steps:
+            row = None
+            if step["kind"] == "user":
+                row = _label(step["text"], css=("card", "chat-user"), halign=Gtk.Align.END)
+            elif step["kind"] == "agent":
+                row = AgentMessage(lambda uri: _open_uri(self, uri), self.force_animations)
+                row.set_text(step["text"], self.colors, fade=False)
+            elif not is_internal(step["name"], {"parameters": step["parameters"]}):
+                row = ToolRow(history_tool_text(step["name"], step["parameters"]))
+                row.finish(step["output"], step["failed"])
+                if not step["failed"] and step["output"]:
+                    row.set_tooltip_text("\n".join(step["output"].split("\n")[:20]))
+            if row is not None:
+                self._add(row, animate=False, after=after, at_start=at_start)
+                after = row
+            if not at_start:
+                self.history_index = max(self.history_index or -1, step["index"])
+
+    def replay_from_terminal(self):
+        """Back from the Terminal view, which went on with this conversation:
+        what was said there since this chat last saw the transcript, or a
+        note when that cannot be told."""
+        steps = agy_history.read_steps(self.process.conversation_id)
+        if steps is None or self.history_index is None:
+            self.add_note("Back from the Terminal view: the same conversation, but what was said there "
+                          "is shown only there.")
+            return
+        new = [s for s in steps if s["index"] > self.history_index]
+        if new:
+            self.add_note("From the Terminal view:")
+            self.replay(new)
 
     def text(self):
         buffer = self.input.get_buffer()
@@ -718,11 +777,17 @@ class ChatView(Gtk.Box):
         self.send_button.set_visible(not busy)
         self.stop_button.set_visible(busy)
 
-    def _add(self, widget):
-        """Adds a row: it fades in, rising from below."""
+    def _add(self, widget, animate=True, after=None, at_start=False):
+        """Adds a row: it fades in, rising from below. `at_start`: before the
+        rows there are, right after `after` (None: first)."""
         if self.placeholder.get_parent():
             self.messages.remove(self.placeholder)
-        self.messages.append(widget)
+        if at_start:
+            self.messages.insert_child_after(widget, after)
+        else:
+            self.messages.append(widget)
+        if not animate:
+            return widget
         params = animations.Animations.get().effect("chat_message", self.force_animations) or {}
         rise = params.get("distance", 0) * params.get("intensity", 1)
 
@@ -802,7 +867,9 @@ class ChatView(Gtk.Box):
 
     def on_event(self, event):
         kind = event.get("event")
-        if kind == "step_update":
+        if kind == "init" and self.continued_note is not None:
+            self._show_continued(event.get("conversation_id"))
+        elif kind == "step_update":
             self._on_step(event.get("step_update") or {})
         elif kind == "result":
             self._on_result(event.get("result") or {})
@@ -856,6 +923,24 @@ class ChatView(Gtk.Box):
             if state in ("DONE", "ERROR"):
                 error = info.get("error") or {}
                 row.finish(info.get("output") or error.get("message") or "", state == "ERROR")
+
+    def _show_continued(self, conversation_id):
+        """agy --continue picked its conversation: what was said in it before
+        goes above, in place of the note that it is only in the Terminal view."""
+        note, self.continued_note = self.continued_note, None
+        steps = agy_history.read_steps(conversation_id)
+        if not steps:
+            return
+        # The message that started agy may be in the transcript already: it shows below
+        first = self.messages.get_first_child()
+        while first and not first.has_css_class("chat-user"):
+            first = first.get_next_sibling()
+        sent = [i for i, s in enumerate(steps) if first and s["kind"] == "user" and s["text"] == first.get_label()]
+        if sent:
+            steps = steps[:sent[-1]]
+        if note.get_parent():
+            self.messages.remove(note)
+        self.replay(steps, at_start=True)
 
     def _on_result(self, result):
         self._set_busy(False)
