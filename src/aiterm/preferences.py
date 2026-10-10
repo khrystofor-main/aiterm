@@ -5,6 +5,7 @@ from gi.repository import Adw, GObject, Gtk, Pango
 
 from aiterm.animations_page import AnimationsPage
 from aiterm.palettes import PALETTES
+from aiterm.prompt_page import PromptPage
 from aiterm.settings import AGENT_VIEWS, CURSOR_SHAPES, Settings
 from aiterm.terminal import Terminal
 
@@ -51,6 +52,9 @@ class PreferencesDialog(Adw.PreferencesDialog):
         appearance.add(colors)
         appearance.add(text)
         self.add(appearance)
+
+        self.prompt_page = PromptPage()
+        self.add(self.prompt_page)
 
         # Behavior
         scrolling = Adw.PreferencesGroup(title="Scrollback")

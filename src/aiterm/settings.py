@@ -15,6 +15,7 @@ from aiterm.palettes import DEFAULT_PALETTE, PALETTES
 CURSOR_SHAPES = ("block", "ibeam", "underline")
 AGENT_VIEWS = ("terminal", "chat")
 ANIMATIONS = ("auto", "on", "off")
+PROMPT_SYMBOLS = ("dollar", "arrow", "chevron", "lambda", "percent")  # see prompt.SYMBOLS
 
 
 def config_dir():
@@ -44,6 +45,13 @@ class Settings(GObject.Object):
     approve_agent_edits = GObject.Property(type=bool, default=True)
     # agy's own interface in a terminal, or the app's chat (agent_panel.py)
     agent_view = GObject.Property(type=str, default="terminal")
+    # Aiterm's own bash prompt instead of the one from ~/.bashrc (prompt.py)
+    custom_prompt = GObject.Property(type=bool, default=False)
+    prompt_segments = GObject.Property(
+        type=str, default="user_host:green,cwd:blue,git:magenta,venv:yellow,-time:gray,status:red")
+    prompt_symbol = GObject.Property(type=str, default="dollar")
+    prompt_two_lines = GObject.Property(type=bool, default=False)
+    prompt_bold = GObject.Property(type=bool, default=True)
     # Not in the dialog: the size of the last window closed, for the next one
     window_width = GObject.Property(type=int, default=960, minimum=200, maximum=20_000)
     window_height = GObject.Property(type=int, default=600, minimum=150, maximum=20_000)
@@ -86,6 +94,8 @@ class Settings(GObject.Object):
             self.cursor_shape = "block"
         if self.agent_view not in AGENT_VIEWS:
             self.agent_view = "terminal"
+        if self.prompt_symbol not in PROMPT_SYMBOLS:
+            self.prompt_symbol = "dollar"
         if self.animations not in ANIMATIONS:
             self.animations = "auto"
 
