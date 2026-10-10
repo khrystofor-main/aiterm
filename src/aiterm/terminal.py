@@ -123,7 +123,10 @@ class Terminal(Vte.Terminal):
         env = dict(env or {})
         if not argv:  # the user's shell: integration.bash reads Aiterm's prompt from here
             env.setdefault("AITERM_PROMPT_FILE", prompt.prompt_file())
-        self._spawn(cwd or GLib.get_home_dir(), argv or shell_command(), env)
+        # Until the shell reports its folder: the agent panel starts the agent
+        # in the first tab's folder even when it opens before the shell runs
+        self._start_cwd = cwd or GLib.get_home_dir()
+        self._spawn(self._start_cwd, argv or shell_command(), env)
 
     def title(self):
         if hasattr(Vte, "TERMPROP_XTERM_TITLE"):
@@ -326,7 +329,8 @@ class Terminal(Vte.Terminal):
 
     def current_directory(self):
         """The shell's folder: from OSC 7 (Ubuntu's bash sends it through
-        /etc/profile.d/vte-2.91.sh), else from /proc."""
+        /etc/profile.d/vte-2.91.sh), else from /proc, else the folder it
+        started in."""
         uri = self.ref_termprop_uri(Vte.TERMPROP_CURRENT_DIRECTORY_URI)
         if uri and uri.get_scheme() == "file":
             return GLib.filename_from_uri(uri.to_string())[0]
@@ -335,7 +339,7 @@ class Terminal(Vte.Terminal):
                 return os.readlink(f"/proc/{self._pid}/cwd")
             except OSError:
                 pass
-        return None
+        return self._start_cwd
 
     def _spawn(self, cwd, argv, env):
         environment = dict(os.environ)
