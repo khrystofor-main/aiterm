@@ -78,6 +78,7 @@ def main_menu():
     app = Gio.Menu()
     app.append("Preferences", "app.preferences")
     app.append("Keyboard Shortcuts", "app.shortcuts")
+    app.append("Send Feedback", "app.feedback")
     app.append("About Aiterm", "app.about")
     menu.append_section(None, app)
     return menu

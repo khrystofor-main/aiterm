@@ -9,7 +9,10 @@ gi.require_version("Vte", "3.91")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
 from aiterm import APP_ID, VERSION  # noqa: E402
-from aiterm import agent_panel, approval, chat_view, diff_view, prompt, prompt_page, terminal, window  # noqa: E402
+from aiterm import (  # noqa: E402
+    agent_panel, approval, chat_view, diff_view, feedback_page, prompt, prompt_page, terminal, window,
+)
+from aiterm.feedback_page import FeedbackMonitor  # noqa: E402
 from aiterm.animations import Animations  # noqa: E402
 from aiterm.dbus_api import TerminalApi  # noqa: E402
 from aiterm.preferences import PreferencesDialog  # noqa: E402
@@ -66,7 +69,8 @@ class Application(Adw.Application):
     def do_startup(self):
         Adw.Application.do_startup(self)
         css = Gtk.CssProvider()
-        css.load_from_string(CSS + agent_panel.CSS + approval.CSS + chat_view.CSS + diff_view.CSS + prompt_page.CSS)
+        css.load_from_string(CSS + agent_panel.CSS + approval.CSS + chat_view.CSS + diff_view.CSS + prompt_page.CSS
+                         + feedback_page.CSS)
         Gtk.StyleContext.add_provider_for_display(
             Gdk.Display.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
@@ -79,6 +83,8 @@ class Application(Adw.Application):
         self._load_animated_css()
         # The shell prompt set up in Preferences → Prompt, read by every bash tab
         prompt.follow(Settings.get())
+        # Claude's answers to the user's feedback, as notifications
+        FeedbackMonitor.get().start()
         # Terminals and windows catch these keys themselves (see shortcuts.py);
         # registering them here only shows them next to the items in menus
         for name, accel in terminal.SHORTCUTS.items():
@@ -90,6 +96,7 @@ class Application(Adw.Application):
             "new-window": self.new_window,
             "preferences": self.show_preferences,
             "animation-preferences": lambda: self.show_preferences("animations"),
+            "feedback": lambda: self.show_preferences("feedback"),
             "shortcuts": self.show_shortcuts,
             "about": self.show_about,
         }.items():
@@ -99,6 +106,10 @@ class Application(Adw.Application):
         # From a "command finished" notification: (window id, terminal serial)
         show = Gio.SimpleAction.new("show-terminal", GLib.VariantType.new("(uu)"))
         show.connect("activate", lambda _action, target: self.show_terminal(*target.unpack()))
+        self.add_action(show)
+        # From a feedback notification: the issue number
+        show = Gio.SimpleAction.new("show-feedback", GLib.VariantType.new("u"))
+        show.connect("activate", lambda _action, target: self.show_preferences("feedback", target.unpack()))
         self.add_action(show)
 
     def _load_animated_css(self):
@@ -130,11 +141,21 @@ class Application(Adw.Application):
         if window:
             window.show_terminal(serial)
 
-    def show_preferences(self, page=None):
+    def show_preferences(self, page=None, feedback=None):
+        """Opens Preferences, on `page` ("animations", "feedback") and the
+        conversation of `feedback`, an issue number, when given."""
+        window = self.get_active_window() or next(iter(self.get_windows()), None)
+        if window is None:
+            window = Window(application=self)
+        window.present()
         dialog = PreferencesDialog()
         if page == "animations":
             dialog.set_visible_page(dialog.animations_page)
-        dialog.present(self.get_active_window())
+        elif page == "feedback":
+            dialog.set_visible_page(dialog.feedback_page)
+        dialog.present(window)
+        if feedback is not None:
+            dialog.feedback_page.open_conversation(feedback)
 
     def show_shortcuts(self):
         dialog = Adw.ShortcutsDialog()

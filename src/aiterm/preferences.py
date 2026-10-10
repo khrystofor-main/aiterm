@@ -4,6 +4,7 @@ changes apply to open terminals at once and are saved right away."""
 from gi.repository import Adw, GObject, Gtk, Pango
 
 from aiterm.animations_page import AnimationsPage
+from aiterm.feedback_page import FeedbackPage
 from aiterm.palettes import PALETTES
 from aiterm.prompt_page import PromptPage
 from aiterm.settings import AGENT_VIEWS, CURSOR_SHAPES, Settings
@@ -12,13 +13,14 @@ from aiterm.terminal import Terminal
 BOTH_WAYS = GObject.BindingFlags.BIDIRECTIONAL | GObject.BindingFlags.SYNC_CREATE
 CURSOR_LABELS = {"block": "Block", "ibeam": "I-Beam", "underline": "Underline"}
 VIEW_LABELS = {"terminal": "Terminal", "chat": "Chat"}
-CONTENT_WIDTH = 780
+CONTENT_WIDTH = 900
 
 
 class PreferencesDialog(Adw.PreferencesDialog):
     def __init__(self):
-        # Wide enough for the five page names in the header: narrower, the
-        # page switcher moves to a bar at the bottom
+        # Wide enough for the six page names in the header: narrower, the
+        # page switcher moves to a bar at the bottom (so it does in windows
+        # under about 1050 px, which leave the header too little room)
         super().__init__(title="Preferences", content_width=CONTENT_WIDTH)
         self.settings = settings = Settings.get()
 
@@ -128,6 +130,9 @@ class PreferencesDialog(Adw.PreferencesDialog):
 
         self.animations_page = AnimationsPage()
         self.add(self.animations_page)
+
+        self.feedback_page = FeedbackPage()
+        self.add(self.feedback_page)
 
 
 def combo_row(title, values, settings, key, labels=None):
