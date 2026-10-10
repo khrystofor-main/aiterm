@@ -46,6 +46,7 @@ SHORTCUTS_HELP = [
     ("Windows", [
         ("New Window", "app.new-window"),
         ("Switch Between Shell and Agent", "win.switch-to-agent"),
+        ("Show or Hide the Agent Panel", "win.agent-panel"),
         ("Preferences", "app.preferences"),
     ]),
     ("View", [

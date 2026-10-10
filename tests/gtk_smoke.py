@@ -1224,8 +1224,15 @@ def steps(app):
     wait_for(lambda: "$ " in screen_text(other_term))
     check("new window starts in the current tab's folder",
           wait_for(lambda: other_term.current_directory() == "/tmp"), f"{other_term.current_directory()!r}")
-    other.activate_action("win.agent-panel")
+    other_keys = capture_shortcuts(other)
+    toggle = other_keys.get(Gtk.ShortcutTrigger.parse_string("<Control><Shift>b").to_string())
+    check("Ctrl+Shift+B is caught before VTE and toggles the agent panel",
+          toggle is not None and toggle.get_action().activate(Gtk.ShortcutActionFlags(0), other, None))
     check("the panel closes", not other.agent_panel.get_visible() and not settings.agent_panel_visible)
+    toggle.get_action().activate(Gtk.ShortcutActionFlags(0), other, None)
+    check("Ctrl+Shift+B opens it again", other.agent_panel.get_visible() and settings.agent_panel_visible)
+    other.activate_action("win.agent-panel")
+    check("the panel action closes it", not other.agent_panel.get_visible() and not settings.agent_panel_visible)
     other.set_default_size(700, 400)
     other.close()
     wait_for(lambda: len(app.get_windows()) == 1)

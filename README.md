@@ -91,6 +91,7 @@ Open **Aiterm** from the menu (or run `aiterm`). Work in your shell; press **Alt
 | Keys | Action |
 |---|---|
 | `Alt+Enter` | Switch between your shell and the agent (opens the panel) |
+| `Ctrl+Shift+B` | Show / hide the agent panel |
 | `Ctrl+Shift+T` / `Ctrl+Shift+W` | New tab (in the same folder) / close tab |
 | `Ctrl+PgUp` / `Ctrl+PgDn`, `Alt+1…9` | Switch tabs |
 | `Ctrl+Shift+N` | New window |
