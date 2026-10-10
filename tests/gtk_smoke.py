@@ -927,12 +927,30 @@ def steps(app):
           wait_for(lambda: "Read hostname" in tool_lines()) and not any("json" in t for t in tool_lines()),
           str(tool_lines()))
     wait_for(lambda: not chat.process.busy)
-    chat.send("run: echo never")
+    chat_keys = capture_shortcuts(chat)
+    press = lambda accel: chat_keys[Gtk.ShortcutTrigger.parse_string(accel).to_string()].get_action().activate(
+        Gtk.ShortcutActionFlags(0), chat, None)
+    check("with nothing to answer, Ctrl+Enter and Escape go on to the input",
+          not press("<Control>Return") and not press("Escape"))
+    chat.send("run: echo by-key")
     wait_for(lambda: len(rows()) == 2 and rows()[1].buttons.get_visible())
-    rows()[1].skip_button.emit("clicked")
+    check("…the card's buttons show their keys",
+          "Ctrl+Enter" in rows()[1].run_button.get_tooltip_text()
+          and "Esc" in rows()[1].skip_button.get_tooltip_text())
+    check("Ctrl+Enter runs the command on the card", press("<Control>Return")
+          and wait_for(lambda: rows()[1].output.get_label() == "by-key", 20), rows()[1].output.get_label())
+    wait_for(lambda: not chat.process.busy)
+    chat.send("run: echo never")
+    wait_for(lambda: len(rows()) == 3 and rows()[2].buttons.get_visible())
+    win.agent_panel.set_visible(False)
+    check("…not while the bar asks instead", not press("Escape") and win.approval.pending)
+    win.agent_panel.set_visible(True)
+    wait_for(lambda: not win.approval.get_reveal_child())
+    check("Escape is Don't Run", press("Escape")
+          and wait_for(lambda: rows()[2].status.has_css_class("error")), rows()[2].status.get_label())
     check("Don't Run marks the block as not run",
-          wait_for(lambda: rows()[1].status.has_css_class("error")) and "chose not to run" in rows()[1].status.get_label(),
-          rows()[1].status.get_label())
+          wait_for(lambda: rows()[2].status.has_css_class("error")) and "chose not to run" in rows()[2].status.get_label(),
+          rows()[2].status.get_label())
     Settings.get().approve_agent_commands = False
     wait_for(lambda: not chat.process.busy)
 
@@ -953,8 +971,8 @@ def steps(app):
           repr(diff_text))
     check("…and Apply / Reject while it waits", wait_for(lambda: cards()[0].buttons.get_visible())
           and win.approval.pending and win.approval.kind == "edit" and not win.approval.get_reveal_child())
-    cards()[0].apply_button.emit("clicked")
-    check("Apply in the chat writes the file",
+    press("<Control>KP_Enter")
+    check("Apply in the chat (Ctrl+Enter) writes the file",
           wait_for(lambda: not cards()[0].running) and open(edited).read() == "one\n2\nthree\n"
           and not cards()[0].apply_button.get_visible() and cards()[0].icon.has_css_class("success"),
           open(edited).read())
