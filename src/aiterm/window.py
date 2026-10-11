@@ -146,7 +146,7 @@ class Window(Adw.ApplicationWindow):
         actions = {
             "new-tab": self.new_tab,
             "close-tab": self.close_tab,
-            "find": lambda: self.search.open(),
+            "find": lambda: self.search.toggle(),
             "zoom-in": lambda: self.set_zoom(self.zoom * ZOOM_STEP),
             "zoom-out": lambda: self.set_zoom(self.zoom / ZOOM_STEP),
             "zoom-reset": lambda: self.set_zoom(1.0),

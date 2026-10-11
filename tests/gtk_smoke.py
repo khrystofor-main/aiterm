@@ -1098,6 +1098,9 @@ def steps(app):
     search.regex.set_active(False)
     search.set_search_mode(False)
     check("closing the search clears it", term.search_get_regex() is None)
+    win.activate_action("win.find")
+    win.activate_action("win.find")
+    check("Ctrl+Shift+F again closes the search bar", not search.get_search_mode())
 
     win.activate_action("win.zoom-in")
     win.activate_action("win.zoom-in")
