@@ -10,7 +10,8 @@ gi.require_version("Vte", "3.91")
 
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
-from aiterm import APP_ID, VERSION  # noqa: E402
+from aiterm import APP_ID, VERSION, launch  # noqa: E402
+from aiterm.launch import start_directory  # noqa: E402
 from aiterm import (  # noqa: E402
     agent_panel, approval, chat_view, diff_view, feedback_page, prompt, prompt_page, terminal, window,
 )
@@ -70,11 +71,9 @@ class Application(Adw.Application):
         flags = kwargs.pop("flags", Gio.ApplicationFlags.DEFAULT_FLAGS)
         super().__init__(application_id=application_id,
                          flags=flags | Gio.ApplicationFlags.HANDLES_COMMAND_LINE, **kwargs)
-        # `aiterm DIR`, `aiterm -w DIR`: the folder of the new window's first tab
-        self.add_main_option("working-directory", ord("w"), GLib.OptionFlags.NONE, GLib.OptionArg.FILENAME,
-                             "Open the first tab in DIR instead of the current folder", "DIR")
-        self.add_main_option(GLib.OPTION_REMAINING, 0, GLib.OptionFlags.NONE, GLib.OptionArg.FILENAME_ARRAY,
-                             "", "[DIR]")
+        # `aiterm DIR`, `aiterm -w DIR`, `--foreground`: the same options the
+        # launcher (launch.py) checks before this process starts
+        launch.add_options(self)
         self._next_window_cwd = None  # set by do_command_line for do_activate
 
     def do_startup(self):
@@ -143,7 +142,7 @@ class Application(Adw.Application):
         `cd ~/project && aiterm` starts there. The desktop launcher runs it from
         the session's folder, the home folder, so the menu and dock open in ~."""
         try:
-            cwd = start_directory(command_line)
+            cwd = start_directory(command_line.get_options_dict(), command_line.get_cwd())
         except ValueError as error:
             command_line.printerr_literal(f"aiterm: {error}\n")
             return 1
@@ -210,28 +209,8 @@ class Application(Adw.Application):
         ).present(self.get_active_window())
 
 
-def start_directory(command_line):
-    """The folder for the window a command line opens: `-w DIR` or `DIR`,
-    relative to the caller's folder, else the caller's folder itself. Raises
-    ValueError for a folder that does not exist."""
-    options = command_line.get_options_dict()
-    named = options.lookup_value("working-directory", GLib.VariantType("ay"))
-    rest = options.lookup_value(GLib.OPTION_REMAINING, GLib.VariantType("aay"))
-    rest = [os.fsdecode(path) for path in rest.get_bytestring_array()] if rest else []
-    if named and rest or len(rest) > 1:
-        raise ValueError("give one folder to open in")
-    arg = os.fsdecode(named.get_bytestring()) if named else rest[0] if rest else None
-    if arg is None:
-        cwd = command_line.get_cwd()
-        # The caller's folder may be gone (deleted while its shell sat there):
-        # then the home folder, as before
-        return cwd if cwd and os.path.isdir(cwd) else None
-    path = command_line.create_file_for_arg(arg).get_path()
-    if not path or not os.path.isdir(path):
-        raise ValueError(f"{arg}: no such folder")
-    return path
-
-
 def main(argv):
+    """Runs the app in this process: started by launch.main, detached or
+    with --foreground."""
     GLib.set_prgname("aiterm")  # for --help, as argv[0] is __main__.py
-    return Application().run(argv)
+    return Application(application_id=launch.app_id()).run(argv)
