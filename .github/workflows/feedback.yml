@@ -17,11 +17,6 @@ on:
   issue_comment:
     types: [created]
 
-# One run at a time per feedback: a reply that comes during a run waits for it
-concurrency:
-  group: feedback-${{ github.event.issue.number }}
-  cancel-in-progress: false
-
 jobs:
   claude:
     # Only the owner's own feedback (the repository is public), never pull
@@ -34,6 +29,13 @@ jobs:
       github.event.issue.user.login == github.repository_owner &&
       github.actor == github.repository_owner &&
       (github.event_name == 'issues' || !contains(github.event.comment.body, '<!-- aiterm-feedback:'))
+    # One run at a time per feedback: a reply that comes during a run waits
+    # for it. Here, not on the workflow, so the runs Claude's own comments
+    # start (skipped by the `if`) never queue: a group keeps one waiting run
+    # and would drop the owner's reply for them
+    concurrency:
+      group: feedback-${{ github.event.issue.number }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
