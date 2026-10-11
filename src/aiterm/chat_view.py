@@ -127,7 +127,18 @@ def _key_button(text, hint):
     return Gtk.Button(child=box, tooltip_text=f"{text} ({hint})")
 
 
-class CommandRow(Gtk.Box):
+class RequestCard:
+    """What CommandRow and EditRow share as cards that can show a request
+    waiting for the user (approval.py)."""
+
+    def in_sight(self):
+        """Whether the user can see its buttons: the bar above the terminal
+        asks instead while they cannot (ApprovalBar.shown_in_chat)."""
+        chat = self.get_ancestor(ChatView)
+        return chat is not None and chat.in_sight(self.buttons if self.buttons.get_visible() else self)
+
+
+class CommandRow(RequestCard, Gtk.Box):
     """run_command: `$ command`, collapsible output and exit code, and the
     approval buttons while the command waits for the user."""
 
@@ -192,12 +203,16 @@ class CommandRow(Gtk.Box):
         GLib.timeout_add(int(params["duration"] * 0.4),
                          lambda: self.remove_css_class("agent-link") or GLib.SOURCE_REMOVE)
 
+    @property
+    def waiting(self):
+        return self.approval.pending and self.approval.kind == "command" and self.running
+
     def _sync_approval(self):
-        waiting = self.approval.pending and self.approval.kind == "command" and self.running
-        self.approval.show_in(self, waiting)
+        waiting = self.waiting
         self.buttons.set_visible(waiting)
         self.status.set_visible(waiting)
         self.status.set_label("Waiting for you to run it in your terminal")
+        self.approval.show_in(self, waiting)  # after the buttons: they are what it shows
 
     def finish(self, output, failed):
         """The tool's result: the text the model got."""
@@ -232,7 +247,7 @@ class CommandRow(Gtk.Box):
             self.status.set_visible(False)
 
 
-class EditRow(Gtk.Box):
+class EditRow(RequestCard, Gtk.Box):
     """A change to a file: its name, the size of the change and the diff,
     with Apply / Reject while it waits for the user. `approval` is None for
     agy's own file tools, which write without asking."""
@@ -307,13 +322,13 @@ class EditRow(Gtk.Box):
 
     def _sync_approval(self):
         waiting = self.waiting
-        self.approval.show_in(self, waiting)
         self.buttons.set_visible(waiting)
         if waiting:
             self.expander.set_expanded(True)
         if self.running:
             self.status.set_label("Waiting for you to apply it")
             self.status.set_visible(waiting)
+        self.approval.show_in(self, waiting)  # after the buttons: they are what it shows
 
     def finish(self, output, failed):
         if self._handler:
@@ -713,7 +728,7 @@ class ChatView(Gtk.Box):
     def answer_request(self, accept):
         """Run / Apply (True) or Don't Run / Reject (False) for the request a
         card in the chat shows; False when there is none (the key goes on)."""
-        if not (self.approval.pending and self.approval.shown_in_chat):
+        if not (self.approval.pending and self.approval.in_chat):
             return False
         self.approval.answer(accept)
         return True
@@ -725,11 +740,11 @@ class ChatView(Gtk.Box):
         return False
 
     def _on_scrolled(self, adjustment):
-        if self._setting:
-            return
-        self._stick = adjustment.get_value() >= adjustment.get_upper() - adjustment.get_page_size() - 40
-        if self._stick:
-            self.new_button.set_visible(False)
+        if not self._setting:
+            self._stick = adjustment.get_value() >= adjustment.get_upper() - adjustment.get_page_size() - 40
+            if self._stick:
+                self.new_button.set_visible(False)
+        self.approval.refresh()  # a waiting card may have left the view, or come back
 
     def _on_grown(self, adjustment):
         grew = adjustment.get_upper() > self._upper
@@ -738,11 +753,32 @@ class ChatView(Gtk.Box):
             self._glide()
         elif grew:
             self.new_button.set_visible(True)
+        self.approval.refresh()
+
+    def in_sight(self, widget):
+        """Whether `widget`, in this chat, is where the user can see it: in
+        the part scrolled into view, or at the end while the chat follows it
+        there (a waiting card is the newest row)."""
+        if not (self.get_mapped() and widget.get_mapped()):
+            return False
+        if self._stick:
+            return True
+        ok, bounds = widget.compute_bounds(self.messages)
+        top = self.scroller.get_vadjustment().get_value()
+        bottom = top + self.scroller.get_vadjustment().get_page_size()
+        return ok and bounds.get_y() < bottom and bounds.get_y() + bounds.get_height() > top
+
+    def _show_request(self):
+        """A card here waits for the user: the agent can do nothing until
+        they answer, so the chat goes to it even if they had scrolled up."""
+        if self.get_mapped() and any(getattr(row, "waiting", False) for row, _ in self.steps.values()):
+            self.scroll_to_end()
 
     def scroll_to_end(self):
         self._stick = True
         self.new_button.set_visible(False)
         self._glide()
+        self.approval.refresh()
 
     def _glide(self):
         """Scrolls to the end, smoothly; the end moves while text streams in."""
@@ -825,6 +861,7 @@ class ChatView(Gtk.Box):
     def _follow_agent_commands(self, follow):
         if follow and self._ran_handler is None:
             self._ran_handler = (
+                self.approval.connect("changed", lambda _a: self._show_request()),
                 self.approval.connect("agent-ran", lambda _a, command: self._on_agent_ran(command)),
                 self.approval.connect("edit-proposed", lambda _a, path, diff: self._on_edit_proposed(path, diff)),
                 self.approval.connect("edit-applied", lambda _a, path, before, existed, after:
@@ -920,6 +957,7 @@ class ChatView(Gtk.Box):
                     row.set_tooltip_text(path)
                 self._add(row)
                 self.steps[index] = (row, "")
+                self._show_request()  # asked before agy reported the call
             if state in ("DONE", "ERROR"):
                 error = info.get("error") or {}
                 row.finish(info.get("output") or error.get("message") or "", state == "ERROR")

@@ -9,6 +9,8 @@ Each message is a script:
                    changes the file with the real edit_file tool, approval included
     native-edit: PATH
                    reports a change by agy's own replace_file_content (writes nothing)
+    later SCRIPT   waits a second first (the test scrolls the chat meanwhile),
+                   then runs SCRIPT
     wait           takes 30 s, so the test can press Stop
     crash          exits with an error
     anything else  answers "You said: …"
@@ -109,6 +111,9 @@ for line in sys.stdin:
         sys.exit(1)
     if text == "wait":
         time.sleep(30)
+    if text.startswith("later "):
+        time.sleep(1)
+        text = text[6:]
     if text.startswith("run: "):
         schema = "/home/u/.gemini/antigravity-cli/mcp/aiterm_terminal/run_command.json"
         update("tool", "DONE", tool_name="view_file",
