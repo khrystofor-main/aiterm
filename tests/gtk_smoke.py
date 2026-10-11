@@ -1315,6 +1315,57 @@ def steps(app):
           wait_for(lambda: len(cards()) == 3 and not cards()[2].running) and cards()[2].approval is None
           and "+new line" in cards()[2].diff.label.get_text() and "without asking" in cards()[2].status.get_label(),
           f"{[c.status.get_label() for c in cards()]}")
+    wait_for(lambda: not chat.process.busy)
+
+    # A request waiting in the chat is always somewhere the user can see it
+    # (#63): the user had scrolled up, so the chat no longer followed new
+    # rows; the card waited out of sight while the bar above the terminal
+    # stayed hidden for it, and the agent seemed stuck until Stop
+    scroll = chat.scroller.get_vadjustment()
+    for i in range(15):
+        chat.add_note(f"filler {i}")
+    animations.finish_all()
+    wait_for(lambda: scroll.get_upper() > scroll.get_page_size() * 2, 3)
+    animations.finish_all()
+
+    def in_sight(widget):
+        """Some of `widget` is in the part of the chat scrolled into view."""
+        ok, bounds = widget.compute_bounds(chat.messages)
+        top = scroll.get_value()
+        return (ok and widget.get_mapped() and bounds.get_y() + bounds.get_height() > top
+                and bounds.get_y() < top + scroll.get_page_size())
+
+    def sight(card):
+        return (f"buttons at {card.buttons.compute_bounds(chat.messages)[1].get_y():.0f}, "
+                f"view {scroll.get_value():.0f}+{scroll.get_page_size():.0f} of {scroll.get_upper():.0f}, "
+                f"bar={win.approval.get_reveal_child()} pending={win.approval.pending}")
+
+    rows_now = lambda: [w for w in widgets(chat.messages) if isinstance(w, (CommandRow, EditRow))]
+    for kind, message in (("change", f"later edit: {edited}|one|1"), ("command", "later run: echo seen-$((2+3))")):
+        Settings.get().approve_agent_edits = Settings.get().approve_agent_commands = True
+        before = len(rows_now())
+        chat.send(message)
+        animations.finish_all()
+        scroll.set_value(0)  # the user scrolls up to read while the agent works
+        wait_for(lambda: win.approval.pending and len(rows_now()) > before and rows_now()[-1].buttons.get_visible(), 20)
+        card = rows_now()[-1]
+        wait_for(lambda: animations.finish_all() or in_sight(card.buttons), 3)
+        check(f"a {kind} waiting while the user had scrolled up comes into view, its buttons too",
+              win.approval.pending and in_sight(card.buttons) and not win.approval.get_reveal_child(), sight(card))
+        scroll.set_value(0)
+        check("…scrolled out of sight while it waits, the bar above the terminal asks instead",
+              wait_for(lambda: win.approval.get_reveal_child(), 2), sight(card))
+        chat.scroll_to_end()
+        animations.finish_all()
+        check("…and hides again when the card is back in sight",
+              wait_for(lambda: not win.approval.get_reveal_child(), 2), sight(card))
+        (card.apply_button if kind == "change" else card.run_button).emit("clicked")
+        check("…and the card's button answers the agent, which goes on",
+              wait_for(lambda: not card.running and not chat.process.busy, 20) and not win.approval.pending
+              and not card.status.has_css_class("error"), card.status.get_label())
+    check("…the change was written and the command ran",
+          open(edited).read() == "1\ntwo\nthree\n" and last().output == "seen-5", f"{open(edited).read()!r} {last()!r}")
+    Settings.get().approve_agent_commands = False
     Settings.get().approve_agent_edits = False
     wait_for(lambda: not chat.process.busy)
 

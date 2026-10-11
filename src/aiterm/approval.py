@@ -11,9 +11,11 @@ in the app, not in the agent's own permission settings: whatever the agent
 is told or configured to do, nothing is typed until the user clicks Run.
 ProposeEdit calls ask_edit() the same way, and writes nothing before Apply.
 The chat shows the same request in its own cards, with buttons that answer
-here (chat_view.py). A card on screen claims the request (show_in), and the
-bar stays hidden while it does, so the user is asked in one place: the
-chat, or the bar when the chat is not showing (Terminal view, panel closed).
+here (chat_view.py). A card claims the request (show_in), and the bar stays
+hidden while the card is in sight, so the user is asked in one place they
+can see: the chat, or the bar when the chat is not showing (Terminal view,
+panel closed) or has the card scrolled out of view (the chat calls
+refresh() as it scrolls).
 """
 
 import os
@@ -133,7 +135,7 @@ class ApprovalBar(Gtk.Revealer):
 
     def show_in(self, card, showing):
         """A chat card shows (or stopped showing) this request with its own
-        buttons: while one is on screen, the bar hides."""
+        buttons: while one is in sight, the bar hides."""
         if showing and card not in self._cards:
             self._cards[card] = [card.connect(signal, lambda *_: self._update()) for signal in ("map", "unmap")]
         elif not showing and card in self._cards:
@@ -142,8 +144,23 @@ class ApprovalBar(Gtk.Revealer):
         self._update()
 
     @property
-    def shown_in_chat(self):
+    def in_chat(self):
+        """A card in a chat on screen shows the request, in sight or not:
+        the chat's keys answer it."""
         return any(card.get_mapped() for card in self._cards)
+
+    @property
+    def shown_in_chat(self):
+        """A card shows the request where the user can see it: on screen
+        (mapped) and, in the chat, scrolled into view (card.in_sight). A
+        mapped card alone is not enough: scrolled out of view, it would keep
+        the bar hidden while nothing in sight asks (#63)."""
+        return any(card.get_mapped() and card.in_sight() for card in self._cards)
+
+    def refresh(self):
+        """What shows the request may have moved out of sight or into it
+        (the chat scrolled): the bar follows."""
+        self._update()
 
     def _update(self):
         self.set_reveal_child(self._shown and not self.shown_in_chat)
