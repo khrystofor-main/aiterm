@@ -7,6 +7,9 @@ from it. Claude answers in the issue's comments, through the same account,
 and marks each comment with a hidden kind (MARKER), so the app tells its
 questions, progress and results from the user's own replies.
 
+When the feedback workflow runs on GitHub (.github/workflows/feedback.yml),
+Claude comments as the Claude GitHub App's bot (BOTS), with the same markers.
+
 Tests swap `gh` for tests/fake_gh.py through AITERM_GH.
 """
 
@@ -27,6 +30,12 @@ REPO = "khrystofor-main/aiterm"
 OWNER = REPO.split("/")[0]
 LABEL = "feedback"
 ASSETS_BRANCH = "feedback-assets"
+# Claude's account when the feedback workflow runs on GitHub: its comments
+# count when they carry a marker. Nobody else can sign up as a [bot]
+BOTS = ("claude[bot]",)
+# The repository variable that moves feedback from the maintainer's computer
+# (dev/feedback-watch) to GitHub Actions: `github` there
+AGENT_VARIABLE = "FEEDBACK_AGENT"
 # The contents API takes files up to about this size
 MAX_FILE_SIZE = 25 * 1024 * 1024
 FILE_TYPES = {
@@ -306,6 +315,19 @@ def reply(number, text, paths=(), reopen=False, progress=lambda message: None):
     api(f"repos/{REPO}/issues/{number}/comments", "POST", {"body": body})
 
 
+def handled_on_github():
+    """True when the feedback workflow on GitHub handles feedback
+    (AGENT_VARIABLE is `github`), so the watcher on the maintainer's computer
+    stands down. GhError when GitHub can't be reached."""
+    try:
+        variable = api(f"repos/{REPO}/actions/variables/{AGENT_VARIABLE}").data
+    except GhError as error:
+        if "404" in str(error):
+            return False
+        raise
+    return (variable or {}).get("value", "").strip().lower() == "github"
+
+
 # Reading
 
 @dataclass
@@ -346,13 +368,15 @@ def clean(text):
 
 def parse_messages(issue, comments):
     """The issue and the comments of its author: Claude's carry a marker,
-    the rest are the user's. Comments of anyone else are left out."""
+    the rest are the user's. Claude's bot (BOTS) counts with a marker only;
+    comments of anyone else are left out."""
     author = issue["user"]["login"]
     out = [Message(0, "you", None, clean(issue.get("body")), issue["created_at"], issue["html_url"])]
     for comment in comments:
-        if comment["user"]["login"] != author:
-            continue
         marker = MARKER.search(comment.get("body") or "")
+        login = comment["user"]["login"]
+        if login != author and not (login in BOTS and marker):
+            continue
         kind = marker[1] if marker and marker[1] in KINDS else None
         out.append(Message(comment["id"], "claude" if marker else "you", kind, clean(comment.get("body")),
                            comment["created_at"], comment["html_url"]))

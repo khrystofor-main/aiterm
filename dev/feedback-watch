@@ -12,7 +12,11 @@ stored: once Claude comments, the issue stops showing up.
   dev/feedback-watch --interval 30 seconds between checks (default 30)
 
 Only issues and comments of the repository owner count. Uses the user's gh;
-GitHub answers "not changed" to most checks (ETag)."""
+GitHub answers "not changed" to most checks (ETag).
+
+Once feedback is handled on GitHub (the repository variable FEEDBACK_AGENT is
+`github`, see .github/workflows/feedback.yml), it says so and exits with
+code 3 instead of listing anything, so the two never take the same issue."""
 
 import argparse
 import os
@@ -38,10 +42,15 @@ def main():
     args = parser.parse_args()
     tracker = feedback.Tracker(creator=feedback.OWNER, open_only=True)
     failures = 0
+    first = True  # the first check looks at the variable even with nothing pending
     while True:
         try:
             pending = [item for item in tracker.poll() if item.needs_claude]
-            failures = 0
+            # Checked before anything is printed: the workflow may have taken over
+            if (pending or args.once or first) and feedback.handled_on_github():
+                print(f"feedback-watch: feedback is handled on GitHub ({feedback.AGENT_VARIABLE} = github)")
+                return 3
+            failures, first = 0, False
         except feedback.GhError as error:
             failures += 1
             print(f"feedback-watch: {error}", file=sys.stderr)

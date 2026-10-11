@@ -82,7 +82,7 @@ cd aiterm
 ./install.sh
 ```
 
-The installer (no sudo) links the commands into `~/.local/bin`, adds **Aiterm** to the applications menu and connects agy the same way (`bin/aiterm-agent-setup`). Run it again after `git pull` to update (it also moves the rules of older versions out of `~/.gemini/GEMINI.md`); `./uninstall.sh` removes everything it added. There is no build step: the app runs from the repository, and `packaging/build-deb.sh` builds the package from it.
+The installer (no sudo) links the commands into `~/.local/bin`, adds **Aiterm** to the applications menu and connects agy the same way (`bin/aiterm-agent-setup`). Run it again after `git pull` to update (it also moves the rules of older versions out of `~/.gemini/GEMINI.md`); `./uninstall.sh` removes everything it added. Installed this way, Aiterm updates itself: while it runs it checks GitHub every hour (and right after a feedback of yours is done), and when the clone is on `main` with no changes of its own it pulls, runs `./install.sh` and asks you to restart (Preferences → Behavior → Update Automatically; `src/aiterm/update.py`). There is no build step: the app runs from the repository, and `packaging/build-deb.sh` builds the package from it.
 
 ## Usage
 
@@ -111,7 +111,7 @@ A failed command's line shakes and keeps a `✗` with its exit code at the end; 
 
 ![A failed command shakes and gets its ✗, output gets a fading stripe, the colors move to the light style](docs/animations.gif)
 
-Preferences → Feedback (or **Send Feedback** in the main menu) is where you say what you don't like: write it, attach screenshots or recordings (PNG, JPEG, GIF, WebP, MP4, WebM, up to 25 MB), and **Send**. It becomes a GitHub issue labelled `feedback`, sent with your own `gh` (no token in the app); the files go to the repository's `feedback-assets` branch and show in the issue. With it go the versions of Aiterm, GTK, libadwaita, VTE and agy, the system, and the preferences you changed — never your terminal's text. Without `gh` or write access, Send opens GitHub's form in the browser instead. Claude picks the issue up (rules: [docs/feedback-agent.md](docs/feedback-agent.md)), and the page lists your feedback with what each waits for — Sent, In Progress, Question for You, Change Ready, Done — and the conversation, answered from the app (answers can carry screenshots and recordings too: the attach button or drag and drop). A question or a finished change comes as a desktop notification.
+Preferences → Feedback (or **Send Feedback** in the main menu) is where you say what you don't like: write it, attach screenshots or recordings (PNG, JPEG, GIF, WebP, MP4, WebM, up to 25 MB), and **Send**. It becomes a GitHub issue labelled `feedback`, sent with your own `gh` (no token in the app); the files go to the repository's `feedback-assets` branch and show in the issue. With it go the versions of Aiterm, GTK, libadwaita, VTE and agy, the system, and the preferences you changed — never your terminal's text. Without `gh` or write access, Send opens GitHub's form in the browser instead. Claude picks the issue up — on GitHub Actions ([`.github/workflows/feedback.yml`](.github/workflows/feedback.yml), [claude-code-action](https://github.com/anthropics/claude-code-action) on the maintainer's Claude subscription) or in a Claude thread on the maintainer's computer; rules: [docs/feedback-agent.md](docs/feedback-agent.md) — makes the change, takes it through CI to merge, and your Aiterm updates itself. Meanwhile the page lists your feedback with what each waits for — Sent, In Progress, Question for You, Change Ready, Done — and the conversation, answered from the app (answers can carry screenshots and recordings too: the attach button or drag and drop). A question or a finished change comes as a desktop notification.
 
 Before each command the agent runs, a bar above your terminal shows it with **Run** and **Don't Run**. For fully hands-free use, turn off **Ask Before the Agent Runs a Command** in Preferences → Agent; the `sudo` guard keeps working.
 
@@ -177,6 +177,7 @@ evals/run.py --update-readme       # and write the table above
 - [x] **v1.0 — release.** A `.deb` package, demo GIF, CI on GitHub Actions running the tests, a tagged release. ([plan](docs/v1.0-plan.md))
 - [x] **v1.1 — file edits as diffs.** `edit_file` / `write_file` in the MCP server; each change shows as a diff in the chat and above the terminal and waits for Apply. ([plan](docs/v1.1-plan.md))
 - [x] **Feedback from the app.** Preferences → Feedback sends what you don't like, with screenshots, as a GitHub issue; Claude makes the change through a PR and answers in the app. ([rules](docs/feedback-agent.md))
+- [x] **Feedback on GitHub, updates by themselves.** A GitHub Actions workflow runs Claude on each feedback issue, from the change to the merge; the installed Aiterm pulls merged changes and asks for a restart.
 
 ## License
 

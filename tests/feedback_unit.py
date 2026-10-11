@@ -249,6 +249,47 @@ try:
 except feedback.GhError:
     check("an empty reply is not sent", len(state()["comments"]["1"]) == comments)
 
+# On GitHub: Claude's comments come from the Claude GitHub App's bot
+def bot_says(number, body, login="claude[bot]"):
+    data = state()
+    issue = data["issues"][number - 1]
+    data["clock"] += 1
+    stamp = f"2026-10-10T15:00:{data['clock'] % 60:02d}Z"
+    data["comments"][str(number)].append({"id": 9000 + data["clock"], "body": body, "user": {"login": login},
+                                          "created_at": stamp, "html_url": "x"})
+    issue["comments"] = len(data["comments"][str(number)])
+    issue["updated_at"] = stamp
+    with open(STATE, "w") as f:
+        json.dump(data, f)
+
+
+feedback.reply(2, "And the scrollbar")
+bot_says(2, "Looks fine to me", login="someone[bot]")
+bot_says(2, "<!-- aiterm-feedback: status -->\nNot Claude", login="someone[bot]")
+bot_says(2, "No marker, so not one of Claude's")
+second = next(i for i in tracker.poll() if i.number == 2)
+check("other bots, and Claude's bot without a marker, are left out",
+      second.messages[-1].text == "And the scrollbar" and second.needs_claude, [m.text for m in second.messages])
+bot_says(2, "<!-- aiterm-feedback: question -->\nWhich scrollbar?")
+second = next(i for i in tracker.poll() if i.number == 2)
+check("Claude's bot with a marker is Claude: Question for You",
+      second.status == "question" and second.messages[-1].author == "claude" and not second.needs_claude
+      and second.messages[-1].text == "Which scrollbar?", second.messages[-1])
+
+# The watcher stands down once the workflow on GitHub handles feedback
+check("feedback is not on GitHub while the variable is unset", feedback.handled_on_github() is False)
+change(variables={"FEEDBACK_AGENT": "local"})
+check("…or set to anything else", feedback.handled_on_github() is False)
+feedback.reply(2, "The terminal's")
+change(variables={"FEEDBACK_AGENT": "github"})
+check("…and is once it is `github`", feedback.handled_on_github() is True)
+code, out, err = watch("--once")
+check("the watcher then lists nothing, says why, exits with 3",
+      code == 3 and out == "feedback-watch: feedback is handled on GitHub (FEEDBACK_AGENT = github)", (code, out, err))
+code, out, err = watch("--interval", "0.1")
+check("…also when it is started to wait", code == 3 and "handled on GitHub" in out, (code, out, err))
+change(variables={})
+
 change(logged_in=False)
 code, out, err = watch("--once")
 check("…and says when gh can't reach GitHub", code == 1 and "gh auth login" in err, (code, out, err))

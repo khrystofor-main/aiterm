@@ -15,23 +15,15 @@ jobs:
       # bubblewrap needs user namespaces for the eval scenarios' sandbox
       options: --privileged
     steps:
-      - name: Install dependencies
-        run: |
-          apt-get update
-          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-vte-3.91 jq bubblewrap git ca-certificates \
-            xvfb xauth dbus-x11 dbus libgl1-mesa-dri fonts-dejavu-core
+      - name: Install git
+        # so the checkout is a real clone
+        run: apt-get update && apt-get install -y --no-install-recommends git ca-certificates
       - uses: actions/checkout@v4
       - name: Run the tests (GTK under a virtual X display)
-        # Xvfb has no GPU: GTK's GL renderer falls back to slow software GL,
-        # and a busy screen (the chat's spinners) then starves the main loop.
-        # The cairo renderer is the quick one without a GPU
-        env:
-          GSK_RENDERER: cairo
-        run: |
-          useradd -m tester
-          chown -R tester .
-          su tester -w GSK_RENDERER -c 'dbus-run-session -- xvfb-run -a -s "-screen 0 1600x1000x24" tests/run.sh'
+        # The dependencies and the run itself are in the script, so the
+        # feedback workflow's agent can run the same thing in docker
+        # (dev/ci-tests)
+        run: tests/ci.sh
 
   package:
     runs-on: ubuntu-latest

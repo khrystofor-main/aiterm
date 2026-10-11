@@ -3,6 +3,7 @@ changes apply to open terminals at once and are saved right away."""
 
 from gi.repository import Adw, GObject, Gtk, Pango
 
+from aiterm import update
 from aiterm.animations_page import AnimationsPage
 from aiterm.feedback_page import FeedbackPage
 from aiterm.palettes import PALETTES
@@ -95,8 +96,18 @@ class PreferencesDialog(Adw.PreferencesDialog):
         settings.bind_property("notify-long-commands", notify, "active", BOTH_WAYS)
         sound.add(notify)
 
+        updates = Adw.PreferencesGroup(title="Updates")
+        self.update_row = Adw.SwitchRow(
+            title="Update Automatically",
+            subtitle="Gets new versions from GitHub, with the changes made from your feedback, and asks you "
+                     "to restart. For Aiterm installed from its git repository",
+        )
+        settings.bind_property("auto-update", self.update_row, "active", BOTH_WAYS)
+        self.update_row.set_sensitive(update.is_clone())
+        updates.add(self.update_row)
+
         behavior = Adw.PreferencesPage(title="Behavior", icon_name="preferences-system-symbolic")
-        for group in (scrolling, cursor, sound):
+        for group in (scrolling, cursor, sound, updates):
             behavior.add(group)
         self.add(behavior)
 

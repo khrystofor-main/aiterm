@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# dev/ci-tests — runs the tests exactly as CI does (tests/ci.sh: Ubuntu 26.04,
+# GTK under Xvfb) in docker, on a copy of this working tree, uncommitted
+# changes included. For machines without Ubuntu 26.04, such as the GitHub
+# runner of the feedback workflow (docs/feedback-agent.md), and for a last
+# check before a push. Nothing runs on the desktop.
+set -euo pipefail
+ROOT=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
+# --privileged: bubblewrap, for the eval scenarios' sandbox, needs user namespaces
+exec docker run --rm --privileged -v "$ROOT:/src:ro" ubuntu:26.04 \
+  bash -c 'cp -a /src /aiterm && cd /aiterm && exec tests/ci.sh'

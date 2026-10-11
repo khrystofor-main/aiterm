@@ -2,7 +2,8 @@
 """A stand-in for `gh api -i` (the only gh command feedback.py runs), so
 tests never reach GitHub. Its GitHub lives in the JSON file FAKE_GH_STATE:
   login, push, logged_in, issues [...], comments {number: [...]},
-  branches [...], files {path: base64}, calls [[method, endpoint]]
+  branches [...], files {path: base64}, variables {name: value},
+  calls [[method, endpoint]]
 Tests read and change that file to play the user or Claude.
 Run as AITERM_GH="python3 tests/fake_gh.py"."""
 
@@ -128,6 +129,10 @@ def main(argv):
                  and query.get("creator", i["user"]["login"]) == i["user"]["login"]]
         tag = hashlib.sha1(json.dumps(found).encode()).hexdigest()
         done(304, None, tag) if etag == tag else done(200, found, tag)
+    if rest.startswith("/actions/variables/") and method == "GET":
+        name = rest.rsplit("/", 1)[1]
+        value = state.get("variables", {}).get(name)
+        done(404, {"message": "Not Found"}) if value is None else done(200, {"name": name, "value": value})
     parts = rest.split("/")
     if len(parts) == 3 and parts[1] == "issues" and method == "PATCH":  # gh's issue reopen / close
         issue = next(i for i in state["issues"] if i["number"] == int(parts[2]))
