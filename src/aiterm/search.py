@@ -53,6 +53,13 @@ class SearchBar(Gtk.SearchBar):
         self.entry.grab_focus()
         self.entry.select_region(0, -1)
 
+    def toggle(self):
+        """Ctrl+Shift+F: opens the bar, or closes it when it is already open."""
+        if self.get_search_mode():
+            self.set_search_mode(False)
+        else:
+            self.open()
+
     def apply(self):
         """Sets the search on the current terminal and jumps to the newest match."""
         terminal = self._get_terminal()
