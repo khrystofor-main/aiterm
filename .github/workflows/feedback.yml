@@ -56,8 +56,10 @@ jobs:
           additional_permissions: |
             actions: read
           # A fresh runner, the owner's issue only: the agent may run what it
-          # needs (tests in docker, gh, git)
+          # needs (tests in docker, gh, git). The most capable model: it
+          # merges without a human review, so a mistake costs more than tokens
           claude_args: |
+            --model claude-opus-5-5
             --allowedTools Bash,Read,Edit,Write,Glob,Grep,WebFetch,TodoWrite
           prompt: |
             You handle feedback issue #${{ github.event.issue.number }} in ${{ github.repository }}
