@@ -1,0 +1,70 @@
+name: Feedback
+
+# Feedback sent from Aiterm's Preferences → Feedback is an issue labelled
+# `feedback` (src/aiterm/feedback.py). Each new one, and each reply in one,
+# starts Claude (anthropics/claude-code-action, on the maintainer's Claude
+# subscription), which makes the change and takes it to merge by the rules in
+# docs/feedback-agent.md.
+#
+# Off until the repository variable FEEDBACK_AGENT is `github`; while it is
+# not, the Claude thread on the maintainer's computer handles feedback
+# instead (dev/feedback-watch). Needs the CLAUDE_CODE_OAUTH_TOKEN secret
+# (`claude setup-token`) and the Claude GitHub App on the repository.
+
+on:
+  issues:
+    types: [opened]
+  issue_comment:
+    types: [created]
+
+# One run at a time per feedback: a reply that comes during a run waits for it
+concurrency:
+  group: feedback-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  claude:
+    # Only the owner's own feedback (the repository is public), never pull
+    # requests, and never Claude's own comments: they carry the
+    # aiterm-feedback marker
+    if: >-
+      vars.FEEDBACK_AGENT == 'github' &&
+      !github.event.issue.pull_request &&
+      contains(github.event.issue.labels.*.name, 'feedback') &&
+      github.event.issue.user.login == github.repository_owner &&
+      github.actor == github.repository_owner &&
+      (github.event_name == 'issues' || !contains(github.event.comment.body, '<!-- aiterm-feedback:'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      actions: read
+      id-token: write  # the Claude GitHub App's token comes through OIDC
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the agent branches from main and may merge it in
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # gh run view: the agent reads its PR's failed CI logs
+          additional_permissions: |
+            actions: read
+          # A fresh runner, the owner's issue only: the agent may run what it
+          # needs (tests in docker, gh, git)
+          claude_args: |
+            --allowedTools Bash,Read,Edit,Write,Glob,Grep,WebFetch,TodoWrite
+          prompt: |
+            You handle feedback issue #${{ github.event.issue.number }} in ${{ github.repository }}
+            (event: ${{ github.event_name }}), running on a GitHub Actions runner.
+
+            First read docs/feedback-agent.md and follow it, including its
+            "On GitHub" section; CLAUDE.md describes the code. Then read the
+            issue with `gh issue view ${{ github.event.issue.number }} --json title,body,comments,state`.
+
+            If Claude's comment (it carries the aiterm-feedback marker) is
+            already the last one, a run before you handled it: stop without
+            doing anything.

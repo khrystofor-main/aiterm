@@ -35,6 +35,8 @@ class Settings(GObject.Object):
     # A dot at the right end of every command line (effects.py)
     mark_command_lines = GObject.Property(type=bool, default=True)
     notify_long_commands = GObject.Property(type=bool, default=True)
+    # Pull merged changes into the git clone Aiterm runs from (updater.py)
+    auto_update = GObject.Property(type=bool, default=True)
     # "auto" follows GNOME's Reduce Animations until the user picks "on" or
     # "off"; the preset is a key of animations.Animations.presets
     animations = GObject.Property(type=str, default="auto")

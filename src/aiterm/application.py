@@ -20,6 +20,7 @@ from aiterm.animations import Animations  # noqa: E402
 from aiterm.dbus_api import TerminalApi  # noqa: E402
 from aiterm.preferences import PreferencesDialog  # noqa: E402
 from aiterm.settings import Settings  # noqa: E402
+from aiterm.updater import Updater  # noqa: E402
 from aiterm.window import Window  # noqa: E402
 
 # Keeps text off the window edges
@@ -95,6 +96,10 @@ class Application(Adw.Application):
         prompt.follow(Settings.get())
         # Claude's answers to the user's feedback, as notifications
         FeedbackMonitor.get().start()
+        # New versions from GitHub, for the real app only: tests run their own
+        # app ID and must never pull into the clone they run from
+        if self.get_application_id() == APP_ID:
+            Updater.get().start()
         # Terminals and windows catch these keys themselves (see shortcuts.py);
         # registering them here only shows them next to the items in menus
         for name, accel in terminal.SHORTCUTS.items():

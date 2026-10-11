@@ -17,6 +17,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango, Vte
 from aiterm import feedback
 from aiterm.chat_view import markdown_to_pango
 from aiterm.settings import Settings, config_dir
+from aiterm.updater import Updater
 
 POLL_SECONDS = 120
 FILE_FILTER_TYPES = ("image/png", "image/jpeg", "image/gif", "image/webp", "video/mp4", "video/webm")
@@ -150,6 +151,8 @@ class FeedbackMonitor(GObject.Object):
                     # The first read ever only learns what is there
                     if known is not None and message.kind in ("question", "done"):
                         self.notify(item, message)
+                    if message.kind == "done":
+                        Updater.get().check()  # the change is merged: get it
         self.state = {"seen": sorted(seen), "open": [item.number for item in items if item.state == "open"]}
         self.save()
         self.emit("changed")
@@ -179,7 +182,9 @@ class FeedbackMonitor(GObject.Object):
             notification.set_body(" ".join(message.text.split())[:240])
         else:
             notification = Gio.Notification.new("Your feedback is done")
-            notification.set_body(f"{item.title}. Restart Aiterm to get the change")
+            then = ("Aiterm is getting the change and will ask you to restart" if Updater.get().active
+                    else "Restart Aiterm to get the change")
+            notification.set_body(f"{item.title}. {then}")
         notification.set_default_action_and_target("app.show-feedback", GLib.Variant("u", item.number))
         app.send_notification(f"feedback-{item.number}", notification)
 
