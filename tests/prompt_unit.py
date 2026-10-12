@@ -79,11 +79,14 @@ with open(os.path.join(home, ".bashrc"), "w") as f:
     f.write("PS1='own> '\n")
 
 
-def prompts(script, cwd=home):
-    """The prompts bash shows for `script`, without colors and Aiterm's marks."""
+def prompts(script, cwd=home, raw=False):
+    """The prompts bash shows for `script`, without colors and Aiterm's marks
+    (with the marks when `raw`)."""
     env = {"HOME": home, "PATH": os.environ["PATH"], "TERM": "dumb", "AITERM_PROMPT_FILE": prompt.prompt_file()}
     run = subprocess.run(["bash", "--rcfile", os.path.join(ROOT, "src/aiterm/shell/integration.bash"), "-i"],
                          input=script, capture_output=True, text=True, cwd=cwd, env=env, timeout=10)
+    if raw:
+        return run.stderr
     text = re.sub(r"\x1b\][^\x1b]*\x1b\\|\x1b\[[0-9;]*m", "", run.stderr)
     return text.replace("\x01", "").replace("\x02", "")
 
@@ -113,6 +116,14 @@ check("…and user@host again when it is empty", re.search(r"\n\S+@\S+ ~ ❯ ", 
 settings.custom_prompt = False
 check("turning it off removes the file", not os.path.exists(prompt.prompt_file()))
 check("…and bash shows the user's own prompt", "own> " in prompts("true\n"), prompts("true\n"))
+# A venv's activate puts "(.venv) " in front of PS1, marks and all; text
+# before the fresh-line mark would get a line of its own that readline does
+# not count (feedback #74)
+out = prompts('PS1="(.venv) ${PS1-}"\ntrue\nPS1="(.venv) ${PS1-}"\ntrue\n', raw=True)
+out = out.replace("\x01", "").replace("\x02", "")
+check("text put in front of the prompt goes after the fresh-line mark",
+      "\x1b]133;L\x1b\\(.venv) (.venv) own> \x1b]666;vte.ext.aiterm.prompt=0\x1b\\" in out
+      and ") \x1b]133;L" not in out and out.count("133;L") == out.count("vte.ext.aiterm.prompt="), repr(out))
 with open(settings.path) as f:
     saved = f.read().replace('"prompt_symbol": "arrow"', '"prompt_symbol": "bogus"')
 with open(settings.path, "w") as f:
