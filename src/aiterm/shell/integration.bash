@@ -74,9 +74,14 @@ __aiterm_prompt() {
     # The number the next command gets in the history; checked in PS0
     __aiterm_histcmd=$HISTCMD
     __aiterm_custom_prompt "$__aiterm_last_status"
-    # Prompt frameworks rebuild PS1, so add the marks back when they are gone
-    if [[ $PS1 != *vte.ext.aiterm.prompt* ]]; then
-        PS1='\[\e]133;L\e\\\]'"$PS1"'\[\e]666;vte.ext.aiterm.prompt=${__aiterm_prompt_lines}\e\\\]'
+    # The marks go at the very edges of PS1. Prompt frameworks rebuild PS1
+    # and drop them; a venv's activate puts "(.venv) " in front of them, and
+    # text before the fresh-line mark ends up on a line of its own, which
+    # readline does not know about. So take them out and put them back.
+    local start='\[\e]133;L\e\\\]' end='\[\e]666;vte.ext.aiterm.prompt=${__aiterm_prompt_lines}\e\\\]'
+    if [[ $PS1 != "$start"*"$end" ]]; then
+        PS1=${PS1//"$start"/}
+        PS1=$start${PS1//"$end"/}$end
     fi
     local expanded=${PS1@P} newlines
     newlines=${expanded//[!$'\n']/}
