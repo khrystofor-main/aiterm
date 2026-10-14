@@ -32,6 +32,8 @@ class Settings(GObject.Object):
     cursor_shape = GObject.Property(type=str, default="block")
     cursor_blink = GObject.Property(type=bool, default=True)
     audible_bell = GObject.Property(type=bool, default=False)
+    # Selected text in the tabs' terminals goes to the clipboard at once
+    copy_on_select = GObject.Property(type=bool, default=True)
     # A dot at the right end of every command line (effects.py)
     mark_command_lines = GObject.Property(type=bool, default=True)
     notify_long_commands = GObject.Property(type=bool, default=True)

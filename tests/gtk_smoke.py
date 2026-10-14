@@ -1013,7 +1013,18 @@ def steps(app):
     copy_key = keys.get(ctrl_shift["c"])
     handled = copy_key and copy_key.get_action().activate(Gtk.ShortcutActionFlags(0), term, None)
     check("Ctrl+Shift+C without a selection is swallowed, not sent as Ctrl+C", handled)
+    term.get_clipboard().set("before-select")
     term.activate_action("term.select-all")
+    copied = clipboard_text(term)
+    check("selecting text in a tab copies it at once", copied and "smoke-title" in copied,
+          f"clipboard: {copied!r}"[:200])
+    term.unselect_all()
+    term.get_clipboard().set("before-select")
+    settings.copy_on_select = False
+    term.activate_action("term.select-all")
+    check("with Copy on Select off, selecting leaves the clipboard",
+          clipboard_text(term) == "before-select")
+    settings.copy_on_select = True
     term.activate_action("term.copy")
     copied = clipboard_text(term)
     check("select all + copy puts the screen on the clipboard", copied and "smoke-title" in copied,
@@ -1160,6 +1171,10 @@ def steps(app):
     agent.feed_child(b"echo window=$AITERM_WINDOW\n")
     check("the agent knows its window", wait_for(lambda: f"window={win.get_id()}" in screen_text(agent)),
           screen_text(agent)[-200:])
+    agent.get_clipboard().set("before-select")
+    agent.select_all()
+    check("selecting in the agent panel leaves the clipboard", clipboard_text(agent) == "before-select")
+    agent.unselect_all()
     # End to end: the agent's tool types into the user's terminal
     agent.feed_child(b"aiterm-run 'echo from-agent'\n")
     check("the agent's aiterm-run runs in the user's terminal",
