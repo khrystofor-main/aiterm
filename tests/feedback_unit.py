@@ -276,6 +276,18 @@ check("Claude's bot with a marker is Claude: Question for You",
       second.status == "question" and second.messages[-1].author == "claude" and not second.needs_claude
       and second.messages[-1].text == "Which scrollbar?", second.messages[-1])
 
+# A run that stops with an error: the workflow says so, and a reply retries
+feedback.reply(2, "The right one")
+bot_says(2, "<!-- aiterm-feedback: failed -->\nClaude stopped before finishing this: usage limit",
+         login="github-actions[bot]")
+second = next(i for i in tracker.poll() if i.number == 2)
+check("the workflow's failed comment: Stopped, nothing for Claude",
+      second.status == "failed" and feedback.STATUS_LABELS[second.status] == "Stopped"
+      and second.messages[-1].author == "claude" and not second.needs_claude, second.messages[-1])
+feedback.reply(2, "Try again")
+second = next(i for i in tracker.poll() if i.number == 2)
+check("…and a reply makes it Sent again", second.status == "sent" and second.needs_claude, second.status)
+
 # The watcher stands down once the workflow on GitHub handles feedback
 check("feedback is not on GitHub while the variable is unset", feedback.handled_on_github() is False)
 change(variables={"FEEDBACK_AGENT": "local"})
