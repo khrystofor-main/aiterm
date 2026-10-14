@@ -30,6 +30,7 @@ Every comment Claude writes starts with a hidden marker. Without one, the app ta
 | `<!-- aiterm-feedback: question -->` | A question with numbered options | Question for You, with a notification |
 | `<!-- aiterm-feedback: pr -->` | The PR link, once it is open | Change Ready |
 | `<!-- aiterm-feedback: done -->` | After the merge: what changed | Done, with a notification; Aiterm then updates itself and asks for a restart |
+| `<!-- aiterm-feedback: failed -->` | Only the workflow writes it (as `github-actions[bot]`), when a run stops with an error: Claude's last message | Stopped, with a notification; the user's reply tries again |
 
 Post them with `gh issue comment <n> --body-file -`. Write them for the user, in the language they wrote in: plain language, what they will see, no internal ids. After the `done` comment, close the issue (the PR's `Closes #<n>` usually has already). The user can still answer there: that reopens it (Follow-ups above).
 
@@ -45,6 +46,8 @@ The workflow starts one run per event (a new feedback, or a reply of the owner's
 6. Wait for CI: `gh pr checks <pr> --watch` (again if it is still running). Red: `gh run view <run> --log-failed`, fix, test, push, wait again. After three red rounds in a row, comment a `status` that says what fails, and stop: the maintainer takes it from there.
 7. `gh pr merge <pr> --merge --delete-branch`. When `main` moved on and the PR no longer merges, merge `origin/main` into the branch, test, push and wait for CI again.
 8. Comment `done` and close the issue if the merge did not (`gh issue close <n>`). There is no install step: the maintainer's Aiterm updates itself.
+
+When a run stops with an error before Claude's own comments (an expired token, the subscription's usage limit), the workflow's last step comments `failed` with the error. The owner's reply in the app starts a new run; so does `gh workflow run feedback.yml -f issue=<n>`.
 
 The Claude GitHub App cannot change `.github/workflows/`. When a feedback needs that, do the rest, and say in the `done` comment (or a `question`) exactly what the maintainer has to change there.
 

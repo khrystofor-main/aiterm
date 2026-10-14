@@ -8,7 +8,8 @@ and marks each comment with a hidden kind (MARKER), so the app tells its
 questions, progress and results from the user's own replies.
 
 When the feedback workflow runs on GitHub (.github/workflows/feedback.yml),
-Claude comments as the Claude GitHub App's bot (BOTS), with the same markers.
+Claude comments as the Claude GitHub App's bot (BOTS), with the same markers;
+when a run stops with an error, the workflow says why as github-actions[bot].
 
 Tests swap `gh` for tests/fake_gh.py through AITERM_GH.
 """
@@ -30,9 +31,10 @@ REPO = "khrystofor-main/aiterm"
 OWNER = REPO.split("/")[0]
 LABEL = "feedback"
 ASSETS_BRANCH = "feedback-assets"
-# Claude's account when the feedback workflow runs on GitHub: its comments
-# count when they carry a marker. Nobody else can sign up as a [bot]
-BOTS = ("claude[bot]",)
+# Claude's account when the feedback workflow runs on GitHub, and the
+# workflow's own (it reports a failed run): their comments count when they
+# carry a marker. Nobody else can sign up as a [bot]
+BOTS = ("claude[bot]", "github-actions[bot]")
 # The repository variable that moves feedback from the maintainer's computer
 # (dev/feedback-watch) to GitHub Actions: `github` there
 AGENT_VARIABLE = "FEEDBACK_AGENT"
@@ -46,13 +48,14 @@ FILE_TYPES = {
 # <!-- aiterm-feedback: question --> in a comment: Claude wrote it, and asks.
 # The issue body carries "context" around the block the app adds
 MARKER = re.compile(r"<!--\s*aiterm-feedback:\s*([a-z]+)\s*-->")
-KINDS = ("status", "question", "pr", "done")
+KINDS = ("status", "question", "pr", "done", "failed")
 CONTEXT_BLOCK = re.compile(r"<!--\s*aiterm-feedback:\s*context\s*-->.*?</details>", re.S)
 
 # What a feedback waits for, in order
-STATUSES = ("sent", "working", "question", "pr", "done")
+STATUSES = ("sent", "working", "question", "pr", "done", "failed")
 STATUS_LABELS = {
     "sent": "Sent", "working": "In Progress", "question": "Question for You", "pr": "Change Ready", "done": "Done",
+    "failed": "Stopped",
 }
 
 # Preferences that are window state, not choices worth reporting
@@ -390,11 +393,11 @@ def status_of(state, messages):
     if last_claude is None:
         return "sent"
     kind = messages[last_claude].kind or "status"
-    if kind == "done" and last_claude < len(messages) - 1:
-        return "sent"  # reopened with a follow-up: waits for Claude again
+    if kind in ("done", "failed") and last_claude < len(messages) - 1:
+        return "sent"  # reopened, or tried again, with a reply: waits for Claude again
     if kind == "question" and last_claude < len(messages) - 1:
         return "working"  # answered
-    return {"status": "working", "question": "question", "pr": "pr", "done": "done"}[kind]
+    return {"status": "working", "question": "question", "pr": "pr", "done": "done", "failed": "failed"}[kind]
 
 
 class Tracker:

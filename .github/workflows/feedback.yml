@@ -10,31 +10,42 @@ name: Feedback
 # not, the Claude thread on the maintainer's computer handles feedback
 # instead (dev/feedback-watch). Needs the CLAUDE_CODE_OAUTH_TOKEN secret
 # (`claude setup-token`) and the Claude GitHub App on the repository.
+#
+# When Claude stops with an error (an expired token, the subscription's usage
+# limit), the last step says so on the issue; the owner's reply, or
+# `gh workflow run feedback.yml -f issue=<number>`, tries again.
 
 on:
   issues:
     types: [opened]
   issue_comment:
     types: [created]
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: Feedback issue to handle again
+        required: true
+        type: number
 
 jobs:
   claude:
     # Only the owner's own feedback (the repository is public), never pull
     # requests, and never Claude's own comments: they carry the
-    # aiterm-feedback marker
+    # aiterm-feedback marker. The owner may start it by hand
     if: >-
       vars.FEEDBACK_AGENT == 'github' &&
-      !github.event.issue.pull_request &&
-      contains(github.event.issue.labels.*.name, 'feedback') &&
-      github.event.issue.user.login == github.repository_owner &&
       github.actor == github.repository_owner &&
-      (github.event_name == 'issues' || !contains(github.event.comment.body, '<!-- aiterm-feedback:'))
+      (github.event_name == 'workflow_dispatch' || (
+        !github.event.issue.pull_request &&
+        contains(github.event.issue.labels.*.name, 'feedback') &&
+        github.event.issue.user.login == github.repository_owner &&
+        (github.event_name == 'issues' || !contains(github.event.comment.body, '<!-- aiterm-feedback:'))))
     # One run at a time per feedback: a reply that comes during a run waits
     # for it. Here, not on the workflow, so the runs Claude's own comments
     # start (skipped by the `if`) never queue: a group keeps one waiting run
     # and would drop the owner's reply for them
     concurrency:
-      group: feedback-${{ github.event.issue.number }}
+      group: feedback-${{ github.event.issue.number || inputs.issue }}
       cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -49,7 +60,8 @@ jobs:
         with:
           fetch-depth: 0  # the agent branches from main and may merge it in
 
-      - uses: anthropics/claude-code-action@v1
+      - id: claude
+        uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # gh run view: the agent reads its PR's failed CI logs
@@ -62,13 +74,34 @@ jobs:
             --model claude-opus-5-5
             --allowedTools Bash,Read,Edit,Write,Glob,Grep,WebFetch,TodoWrite
           prompt: |
-            You handle feedback issue #${{ github.event.issue.number }} in ${{ github.repository }}
+            You handle feedback issue #${{ github.event.issue.number || inputs.issue }} in ${{ github.repository }}
             (event: ${{ github.event_name }}), running on a GitHub Actions runner.
 
             First read docs/feedback-agent.md and follow it, including its
             "On GitHub" section; CLAUDE.md describes the code. Then read the
-            issue with `gh issue view ${{ github.event.issue.number }} --json title,body,comments,state`.
+            issue with `gh issue view ${{ github.event.issue.number || inputs.issue }} --json title,body,comments,state`.
 
             If Claude's comment (it carries the aiterm-feedback marker) is
             already the last one, a run before you handled it: stop without
             doing anything.
+
+      # The action keeps Claude's output out of the log, so a run that stops
+      # at once (an expired token, a usage limit) would leave the feedback
+      # at Sent with no word why. Its last message goes on the issue, as a
+      # `failed` comment the app shows (from github-actions[bot])
+      - name: Say on the issue why Claude stopped
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number || inputs.issue }}
+          OUTPUT: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          error=$(jq -rs 'flatten | map(select(.type? == "result")) | last | .result // .subtype // empty' \
+            "${OUTPUT:-$RUNNER_TEMP/claude-execution-output.json}" 2>/dev/null | head -c 1500)
+          echo "::error::${error:-Claude stopped without a message}"
+          gh issue comment "$ISSUE" -R "$GITHUB_REPOSITORY" --body-file - <<EOF
+          <!-- aiterm-feedback: failed -->
+          Claude stopped before finishing this: ${error:-no message, see the run}.
+
+          Reply here to try again. [The run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)
+          EOF

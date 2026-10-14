@@ -29,6 +29,7 @@ CSS = """
 .feedback-status { font-size: smaller; padding: 2px 8px; border-radius: 999px;
                    background: alpha(currentColor, 0.1); }
 .feedback-status.question { background: @accent_bg_color; color: @accent_fg_color; }
+.feedback-status.failed { background: @error_bg_color; color: @error_fg_color; }
 .feedback-you { padding: 8px 12px; }
 """
 
@@ -149,7 +150,7 @@ class FeedbackMonitor(GObject.Object):
                 if message.author == "claude" and message.id not in seen:
                     seen.add(message.id)
                     # The first read ever only learns what is there
-                    if known is not None and message.kind in ("question", "done"):
+                    if known is not None and message.kind in ("question", "done", "failed"):
                         self.notify(item, message)
                     if message.kind == "done":
                         Updater.get().check()  # the change is merged: get it
@@ -177,8 +178,9 @@ class FeedbackMonitor(GObject.Object):
         app = Gio.Application.get_default()
         if not app:
             return
-        if message.kind == "question":
-            notification = Gio.Notification.new("Claude asks about your feedback")
+        if message.kind in ("question", "failed"):
+            notification = Gio.Notification.new("Claude asks about your feedback" if message.kind == "question"
+                                                else "Claude stopped on your feedback")
             notification.set_body(" ".join(message.text.split())[:240])
         else:
             notification = Gio.Notification.new("Your feedback is done")
