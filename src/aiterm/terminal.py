@@ -75,6 +75,9 @@ class Terminal(Vte.Terminal):
         "command-finished": (GObject.SignalFlags.RUN_FIRST, None, (int, float)),
     }
     _serials = itertools.count(1)
+    # Selecting text copies it, while the copy_on_select preference is on;
+    # the window turns this on for its tabs
+    copy_on_select = False
 
     def __init__(self, cwd=None, argv=None, env=None):
         """Runs the user's shell, or `argv` (the agent panel runs agy this
@@ -160,6 +163,7 @@ class Terminal(Vte.Terminal):
         copy = group.lookup_action("copy")
         copy.set_enabled(False)
         self.connect("selection-changed", lambda *_: copy.set_enabled(self.get_has_selection()))
+        self.connect("selection-changed", self._on_selection_changed)
 
         # Without a selection Ctrl+Shift+C does nothing, rather than reaching
         # the shell as Ctrl+C
@@ -168,6 +172,12 @@ class Terminal(Vte.Terminal):
             for name, trigger in SHORTCUTS.items()
         })
 
+
+    def _on_selection_changed(self, _terminal):
+        # Only the tabs set copy_on_select: the agent panel and previews keep
+        # the clipboard as it is
+        if self.copy_on_select and self.settings.copy_on_select and self.get_has_selection():
+            self.copy_clipboard_format(Vte.Format.TEXT)
 
     def _add_links(self):
         """Ctrl+click opens a link: plain-text URLs and OSC 8 hyperlinks

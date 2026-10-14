@@ -190,6 +190,7 @@ class Window(Adw.ApplicationWindow):
 
     def add_tab(self, cwd=None, argv=None):
         terminal = Terminal(cwd, argv)
+        terminal.copy_on_select = True
         terminal.set_font_scale(self.zoom)
         scroller = Gtk.ScrolledWindow(child=terminal, hscrollbar_policy=Gtk.PolicyType.NEVER)
         page = self.tabs.append(scroller)

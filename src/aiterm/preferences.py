@@ -79,6 +79,12 @@ class PreferencesDialog(Adw.PreferencesDialog):
                                GObject.BindingFlags.SYNC_CREATE | GObject.BindingFlags.INVERT_BOOLEAN)
         scrolling.add(self.lines_row)
 
+        selection = Adw.PreferencesGroup(title="Selection")
+        copy = Adw.SwitchRow(title="Copy on Select",
+                             subtitle="Text selected in a terminal tab goes to the clipboard at once")
+        settings.bind_property("copy-on-select", copy, "active", BOTH_WAYS)
+        selection.add(copy)
+
         cursor = Adw.PreferencesGroup(title="Cursor")
         cursor.add(combo_row("Shape", list(CURSOR_SHAPES), settings, "cursor_shape", CURSOR_LABELS))
         blink = Adw.SwitchRow(title="Blink", subtitle="Follows the system setting when on")
@@ -107,7 +113,7 @@ class PreferencesDialog(Adw.PreferencesDialog):
         updates.add(self.update_row)
 
         behavior = Adw.PreferencesPage(title="Behavior", icon_name="preferences-system-symbolic")
-        for group in (scrolling, cursor, sound, updates):
+        for group in (scrolling, selection, cursor, sound, updates):
             behavior.add(group)
         self.add(behavior)
 
